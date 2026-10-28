@@ -1,0 +1,27 @@
+{
+  "name": "full-stack-tic-tac-toe",
+  "private": true,
+  "description": "Full-stack Tic-Tac-Toe (YOU vs AI): React + Express + PostgreSQL, deployed on Vercel with Neon.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": "24.x",
+    "npm": ">=11 <12"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c magenta,cyan \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "preview": "concurrently -k -n api,web -c magenta,cyan \"npm start -w backend\" \"npm run preview -w frontend\"",
+    "test": "node --test \"scripts/*.test.mjs\" && npm test -w backend && npm test -w frontend",
+    "test:coverage": "npm run test:coverage -w backend",
+    "check:versions": "node scripts/check-versions.mjs",
+    "audit": "npm audit --omit=dev --audit-level=low"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.6"
+  }
+}

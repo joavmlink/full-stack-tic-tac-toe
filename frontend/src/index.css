@@ -1,0 +1,90 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Fredoka', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+
+  --color-night: #0d0820;
+  --color-night-soft: #1a1035;
+  --color-you: #f472d0;
+  --color-you-deep: #c026d3;
+  --color-ai: #2dd4f0;
+  --color-ai-deep: #0891b2;
+  --color-draw: #fcd34d;
+  --color-draw-deep: #f59e0b;
+
+  --animate-float: float 14s ease-in-out infinite;
+  --animate-blink: blink 1.2s ease-in-out infinite;
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) rotate(0deg);
+    }
+    50% {
+      transform: translate3d(0, -28px, 0) rotate(18deg);
+    }
+  }
+
+  @keyframes blink {
+    0%,
+    100% {
+      opacity: 0.25;
+      transform: translateY(0);
+    }
+    50% {
+      opacity: 1;
+      transform: translateY(-3px);
+    }
+  }
+}
+
+@utility glass {
+  background-color: rgb(255 255 255 / 0.06);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  backdrop-filter: blur(18px);
+  box-shadow:
+    0 20px 60px -20px rgb(0 0 0 / 0.6),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+
+@utility glow-you {
+  filter: drop-shadow(0 0 10px color-mix(in oklab, var(--color-you) 70%, transparent));
+}
+
+@utility glow-ai {
+  filter: drop-shadow(0 0 10px color-mix(in oklab, var(--color-ai) 70%, transparent));
+}
+
+@utility text-glow {
+  text-shadow: 0 0 24px color-mix(in oklab, currentColor 55%, transparent);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply min-h-dvh font-display text-white antialiased;
+    background:
+      radial-gradient(60rem 40rem at 10% -10%, rgb(124 58 237 / 0.35), transparent 60%),
+      radial-gradient(50rem 40rem at 110% 110%, rgb(8 145 178 / 0.3), transparent 60%),
+      radial-gradient(40rem 30rem at 90% 0%, rgb(192 38 211 / 0.2), transparent 60%),
+      var(--color-night);
+    background-attachment: fixed;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-4 outline-draw;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
