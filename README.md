@@ -1,5 +1,12 @@
 # Tic-Tac-Toe · YOU vs AI
 
+**[▶ Live demo](https://full-stack-tic-tac-toe.vercel.app)**
+
+<p align="center">
+  <img src="docs/screenshots/menu.png" alt="Start menu with the Play and Match History buttons and the AI difficulty selector" width="49%">
+  <img src="docs/screenshots/game.png" alt="A match in progress against the AI" width="49%">
+</p>
+
 A full-stack Tic-Tac-Toe game against an AI with three difficulty levels and a persistent match history.
 Built with React, Express and PostgreSQL, and deployed on **Vercel** with a **Neon** database.
 
