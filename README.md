@@ -46,6 +46,7 @@ database; in production `DATABASE_URL` is required.
 ## Project structure
 
 ```
+├─ .github/dependabot.yml    # Weekly dependency updates with a 14-day cooldown
 ├─ api/index.js              # Vercel Function entry (re-exports backend/dist/vercel.js)
 ├─ vercel.json               # Build, rewrites, security headers, caching
 ├─ scripts/check-versions.mjs  # Exact-version / lockfile / .npmrc policy check
@@ -106,7 +107,7 @@ No configuration is needed: matches are stored in a local PGlite database in `ba
 | `npm run preview` | Serves the production build like Vercel does (static files + `vercel.json` headers + `/api` proxy) on http://localhost:4173. Run `npm run build` first |
 | `npm test` | Script tests, backend tests, frontend unit tests and e2e tests |
 | `npm run test:coverage` | Backend tests with coverage thresholds (lines 97%, branches 93%, functions 93%) |
-| `npm run check:versions` | Fails if a dependency isn't pinned to an exact version or the lockfile / `.npmrc` policy is missing |
+| `npm run check:versions` | Fails if a dependency isn't pinned to an exact version or the lockfile / `.npmrc` policy (including the 14-day release-age window) is missing |
 | `npm run audit` | `npm audit` of the production dependencies |
 | `npm test -w backend` | Backend tests against real PostgreSQL (PGlite). Test files run one at a time, since each starts its own embedded database |
 | `npm run test:unit -w frontend` | Game logic and AI tests |
@@ -233,7 +234,12 @@ The app's own limits stay in place as a second layer.
   IPs, bodies or headers. 5xx errors are logged with their stack trace, which never reaches the client.
 - **Dependencies:** exact versions enforced by `npm run check:versions`, committed lockfile and
   `npm audit` with 0 known vulnerabilities.
-- Recommended GitHub settings: enable **Secret scanning**, **Push protection** and **Dependabot alerts**.
+- **Supply chain:** npm only installs versions published at least 14 days ago (`min-release-age` in
+  `.npmrc`), and Dependabot version updates use the same 14-day cooldown. Malicious or broken releases
+  are usually caught and pulled within days. A security fix newer than the window can be installed by
+  temporarily adding the package to `min-release-age-exclude`.
+- Recommended GitHub settings: enable **Secret scanning**, **Push protection** and **Dependabot alerts**
+  (security alerts are not delayed by the cooldown).
 
 ## Operation
 
@@ -247,7 +253,8 @@ The app's own limits stay in place as a second layer.
 ## Reproducible installs
 
 - Every dependency is pinned to an exact version and `package-lock.json` locks the full tree with integrity hashes.
-- `.npmrc` enforces `save-exact` and `engine-strict` (Node 24.x, npm 11.x). Use `npm ci` to install.
+- `.npmrc` enforces `save-exact`, `engine-strict` (Node 24.x, npm 11.x) and `min-release-age=14`.
+  Use `npm ci` to install: it installs the lockfile exactly as committed.
 - `.nvmrc` pins Node 24.21.0 for local development; hosting platforms may apply newer 24.x patch releases.
 
 ## License

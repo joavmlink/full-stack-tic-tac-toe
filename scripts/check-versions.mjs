@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
 const PACKAGES = ['package.json', 'backend/package.json', 'frontend/package.json'];
-const REQUIRED_NPMRC = ['save-exact=true', 'engine-strict=true'];
+const REQUIRED_NPMRC = ['save-exact=true', 'engine-strict=true', 'min-release-age=14'];
 
 // MAJOR.MINOR.PATCH with optional prerelease/build; no ^ ~ > < * x, tags or URLs.
 const EXACT_VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;

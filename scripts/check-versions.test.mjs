@@ -23,7 +23,7 @@ const validProject = () => ({
   'backend/package.json': { dependencies: { express: '5.3.0' } },
   'frontend/package.json': { dependencies: { react: '19.3.1', foo: '1.0.0-beta.2+build.5' } },
   'package-lock.json': '{}',
-  '.npmrc': 'save-exact=true\nengine-strict=true\n',
+  '.npmrc': 'save-exact=true\nengine-strict=true\nmin-release-age=14\n',
 });
 
 describe('findNonExactVersions', () => {
@@ -60,10 +60,17 @@ describe('checkProject', () => {
     delete files['package-lock.json'];
     files['.npmrc'] = 'engine-strict=true\n';
     const problems = checkProject(tempProject(files));
-    assert.equal(problems.length, 3);
+    assert.equal(problems.length, 4);
     assert.match(problems.join('\n'), /express: "\^5\.3\.0"/);
     assert.match(problems.join('\n'), /package-lock\.json is missing/);
     assert.match(problems.join('\n'), /save-exact=true/);
+    assert.match(problems.join('\n'), /min-release-age=14/);
+  });
+
+  test('a shorter release-age window does not satisfy the policy', () => {
+    const files = validProject();
+    files['.npmrc'] = 'save-exact=true\nengine-strict=true\nmin-release-age=3\n';
+    assert.deepEqual(checkProject(tempProject(files)), ['.npmrc must contain min-release-age=14']);
   });
 
   test('the real project complies with the policy', () => {

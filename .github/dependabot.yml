@@ -1,0 +1,10 @@
+# Weekly version updates for the npm workspaces. The cooldown matches `min-release-age` in .npmrc;
+# security updates are not delayed by it.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
