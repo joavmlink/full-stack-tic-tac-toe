@@ -50,6 +50,7 @@ database; in production `DATABASE_URL` is required.
 
 ```
 ├─ .github/dependabot.yml    # Weekly dependency updates with a 14-day cooldown
+├─ CLAUDE.md                 # Instructions for Claude Code: working agreement, commands, architecture
 ├─ api/index.js              # Vercel Function entry (re-exports backend/dist/vercel.js)
 ├─ vercel.json               # Build, rewrites (SPA fallback, never for /assets/), security headers, caching
 ├─ scripts/check-versions.mjs  # Exact-version / lockfile / .npmrc policy check
@@ -305,6 +306,9 @@ why it appears among the contributors.
 2. The agent proposes a plan; nothing is coded until I approve it.
 3. The agent implements and verifies; I review the result and ask questions.
 4. The agent prepares the commit; I push it myself, and Vercel deploys from GitHub.
+
+The working agreement, commands and architecture notes live in [`CLAUDE.md`](CLAUDE.md), which the
+agent loads at the start of every session, so the rules don't depend on the conversation's memory.
 
 ## License
 
