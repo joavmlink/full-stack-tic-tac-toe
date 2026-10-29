@@ -6,7 +6,7 @@ import { useSettingsStore } from '../store/settings-store';
 export const DIFFICULTIES: { value: Difficulty; label: string; emoji: string; hint: string }[] = [
   { value: 'easy', label: 'Easy', emoji: '😌', hint: 'The AI plays at random' },
   { value: 'normal', label: 'Normal', emoji: '🙂', hint: 'Plays well, but makes mistakes' },
-  { value: 'hard', label: 'Hard', emoji: '😈', hint: 'Unbeatable: a draw is your best result' },
+  { value: 'hard', label: 'Hard', emoji: '🔥', hint: 'Unbeatable: a draw is your best result' },
 ];
 
 export function difficultyInfo(value: Difficulty) {
