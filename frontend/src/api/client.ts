@@ -1,16 +1,6 @@
+import { ApiError } from './errors';
+
 const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api').replace(/\/+$/, '');
-
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code: string;
-
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.code = code;
-  }
-}
 
 interface ErrorBody {
   error?: { code?: string; message?: string };
@@ -39,6 +29,8 @@ export async function apiRequestWithHeaders<T>(
     const error = (data as ErrorBody | null)?.error;
     throw new ApiError(response.status, error?.code ?? 'HTTP_ERROR', error?.message ?? `Error ${response.status}`);
   }
+  // Every endpoint answers JSON: anything else (e.g. an HTML page from a proxy) is an error.
+  if (data === null) throw new ApiError(response.status, 'INVALID_RESPONSE', 'The server sent an unexpected response.');
   return { data: data as T, headers: response.headers };
 }
 

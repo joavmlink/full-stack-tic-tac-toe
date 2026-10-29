@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
-import { ApiError } from '../api/client';
+import { ApiError, errorMessage } from '../api/errors';
 import { getMatch } from '../api/matches';
 import { FunLink } from '../components/FunButton';
 import { TONE_CLASSES } from '../components/MatchCard';
@@ -34,7 +34,7 @@ export default function MatchDetailPage() {
       .catch((error: unknown) => {
         if (cancelled) return;
         if (error instanceof ApiError && (error.status === 404 || error.status === 400)) setState({ status: 'not-found' });
-        else setState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' });
+        else setState({ status: 'error', message: errorMessage(error) });
       });
 
     return () => {

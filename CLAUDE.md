@@ -75,12 +75,15 @@ npm workspaces: `backend` (Express API), `frontend` (React SPA), plus root `api/
 
 **Frontend.**
 - The game logic and the AI (minimax with Easy/Normal/Hard) are pure modules in `src/game/`, fully client-side.
-- `store/game-store.ts` (Zustand) drives a match:
-  - status flow: `idle → starting` (POST) `→ flipping` (coin flip) `→ playing → finished` (PATCH, with save retry);
-  - the turn handoff waits for the mark animation (`MARK_DRAW_MS`);
-  - matches abandoned mid-game stay unfinished in the history.
+- `store/create-game-store.ts` (Zustand) drives a match. It receives the API calls as a dependency, so `tests/unit/game-store.test.ts` runs it with a fake API; `store/game-store.ts` only wires in the real API.
+  - Status flow: `idle → starting` (POST) `→ flipping` (coin flip) `→ playing → finished` (PATCH).
+  - Saving retries only network, 429 and 5xx errors, treats a 409 as already saved, and keeps retrying after a rematch.
+  - Leaving `/play` while the POST is pending stops the match once it answers, while tolerating StrictMode's unmount and remount.
+  - The turn handoff waits for the mark animation (`MARK_DRAW_MS`).
+  - Matches abandoned mid-game stay unfinished in the history.
+- `api/errors.ts` (`ApiError`, `errorMessage`) has no `import.meta.env`, so Node unit tests can import it. `api/client.ts` reads `VITE_API_URL` and can't be imported outside Vite.
 - `history-store` handles pagination and stats; `settings-store` persists the difficulty in localStorage under `tic-tac-toe-settings`.
-- `api/client.ts` parses the API error shape and exposes headers (for `Link`). The base URL is `VITE_API_URL`: absolute in dev, `/api` in production.
+- `api/client.ts` parses the API error shape, rejects 2xx responses that aren't JSON and exposes headers (for `Link`). The base URL is `VITE_API_URL`: absolute in dev, `/api` in production.
 - Every page is `React.lazy` inside one `Suspense` in `App.tsx`. New pages must be lazy too, and heavy optional libraries use dynamic `import()` (confetti loads on a win).
   - On `vite:preloadError` the app reloads once (guard in `lib/chunk-reload.ts`).
   - `ErrorBoundary` wraps the `Suspense` and is keyed by pathname.

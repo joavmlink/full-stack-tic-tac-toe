@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { errorMessage } from '../api/errors';
 import { getMatchCounts, listMatches } from '../api/matches';
 import type { Match, MatchCounts } from '../types/match';
 
@@ -15,8 +16,6 @@ interface HistoryState {
   fetchMatches: () => Promise<void>;
   loadMore: () => Promise<void>;
 }
-
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : 'Unknown error');
 
 export const useHistoryStore = create<HistoryState>()((set, get) => ({
   matches: [],

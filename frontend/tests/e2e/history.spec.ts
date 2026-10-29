@@ -100,4 +100,14 @@ test.describe('Match History', () => {
     await page.getByRole('button', { name: 'Retry' }).click();
     await expect(page.getByRole('alert')).toBeHidden();
   });
+
+  test('a successful response that is not JSON shows the retry screen, not a crash', async ({ page }) => {
+    // E.g. a proxy or a misrouted request answering 200 with an HTML page.
+    await page.route('**/api/matches', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Not the API</title>' }),
+    );
+    await page.goto('/history');
+    await expect(page.getByRole('alert')).toContainText("Couldn't load your match history");
+    await expect(page.getByTestId('error-boundary')).toHaveCount(0);
+  });
 });
