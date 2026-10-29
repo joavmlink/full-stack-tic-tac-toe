@@ -236,8 +236,9 @@ The app's own limits stay in place as a second layer.
   `npm audit` with 0 known vulnerabilities.
 - **Supply chain:** npm only installs versions published at least 14 days ago (`min-release-age` in
   `.npmrc`), and Dependabot version updates use the same 14-day cooldown. Malicious or broken releases
-  are usually caught and pulled within days. A security fix newer than the window can be installed by
-  temporarily adding the package to `min-release-age-exclude`.
+  are usually caught and pulled within days. A security fix newer than the window is installed as a
+  one-off exception, e.g. `npm audit fix --min-release-age-exclude=<package>` (this is how
+  `body-parser` 2.4.0 got in: it fixes a high-severity DoS advisory).
 - Recommended GitHub settings: enable **Secret scanning**, **Push protection** and **Dependabot alerts**
   (security alerts are not delayed by the cooldown).
 
