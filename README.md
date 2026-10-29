@@ -261,6 +261,51 @@ The app's own limits stay in place as a second layer.
   Use `npm ci` to install: it installs the lockfile exactly as committed.
 - `.nvmrc` pins Node 24.21.0 for local development; hosting platforms may apply newer 24.x patch releases.
 
+## How this was built
+
+This project was built with an AI coding agent, [Claude Code](https://claude.com/claude-code), working
+under my direction. Commits written with the agent carry a `Co-Authored-By: Claude` trailer, which is
+why it appears among the contributors.
+
+**My role: product, architecture decisions and review**
+
+- Wrote the original specification: the game, the match history, the REST API and the data model.
+- Made the key decisions:
+  - the stack;
+  - PostgreSQL on Neon instead of SQLite, so data persists on serverless hosting;
+  - a Vercel-only deployment;
+  - the MVC (Model-View-Controller) architectural pattern for the backend;
+  - Node Test Runner and Playwright for testing;
+  - English for the whole codebase.
+- Set the quality and security bar:
+  - strict handling of secrets and environment variables;
+  - exact dependency versions with a 14-day minimum release age;
+  - rate limiting and JSON errors everywhere;
+  - pagination;
+  - route-level lazy loading;
+  - a single clean initial commit.
+- Required a written plan before any code change, reviewed it, and asked for the reasoning behind
+  each decision (for example, how parameterized queries prevent SQL injection).
+- Did the deployment myself: the Neon database, the Vercel project and its environment variables,
+  the Vercel Firewall rule, and the GitHub security settings (secret scanning, push protection,
+  Dependabot).
+
+**The agent's role: implementation and verification**
+
+- Researched current library versions and platform documentation before using them.
+- Implemented the frontend, the backend, the tests and the documentation according to the approved plans.
+- Ran the full verification before every commit: type checks, the build, the unit, integration and
+  end-to-end suites (development and production builds), coverage thresholds, `npm audit`, the
+  version policy and a secret scan of the staged files.
+- Investigated intermittent test failures down to their root cause instead of retrying them.
+
+**The workflow**
+
+1. I describe the feature or change.
+2. The agent proposes a plan; nothing is coded until I approve it.
+3. The agent implements and verifies; I review the result and ask questions.
+4. The agent prepares the commit; I push it myself, and Vercel deploys from GitHub.
+
 ## License
 
 [MIT](LICENSE)
