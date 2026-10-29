@@ -25,10 +25,20 @@ describe('loadConfig', () => {
   });
 
   test('treats empty variables as unset', () => {
-    const config = loadConfig({ DATABASE_URL: '', PGLITE_DIR: '', FRONTEND_URL: '' });
+    const config = loadConfig({
+      PORT: '',
+      DATABASE_URL: '',
+      PGLITE_DIR: '',
+      FRONTEND_URL: '',
+      RATE_LIMIT_WRITES_PER_MINUTE: '',
+      RATE_LIMIT_READS_PER_MINUTE: '',
+    });
+    assert.equal(config.port, 3000);
     assert.equal(config.databaseUrl, undefined);
     assert.equal(config.pgliteDir, './data/pglite');
     assert.deepEqual(config.frontendUrls, ['http://localhost:5173']);
+    assert.equal(config.writeLimitPerMinute, 30);
+    assert.equal(config.readLimitPerMinute, 120);
   });
 
   test('accepts several frontend origins and normalizes them', () => {

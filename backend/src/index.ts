@@ -38,6 +38,6 @@ try {
   });
 } catch (error) {
   // Invalid configuration, port already in use, database unreachable...
-  logger.error('startup failed', { error: error instanceof Error ? error.message : String(error) });
+  logger.error('startup failed', { error: describeError(error) });
   process.exit(1);
 }

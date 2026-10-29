@@ -73,7 +73,11 @@ describe('src/index.ts', () => {
     const [entry] = parseLines(result.stderr);
     assert.equal(entry?.level, 'error');
     assert.equal(entry?.message, 'startup failed');
-    assert.match(String(entry?.error), /Invalid environment variables/);
+    const error = entry?.error as { name?: string; message?: string; stack?: string } | undefined;
+    assert.match(String(error?.message), /Invalid environment variables/);
+    // Same shape as every other logged error: name, message and stack trace.
+    assert.equal(error?.name, 'Error');
+    assert.match(String(error?.stack), /config\.(ts|js)/);
   });
 
   test('a port already in use exits with code 1', async () => {
@@ -85,7 +89,7 @@ describe('src/index.ts', () => {
       assert.equal(result.code, 1);
       const [entry] = parseLines(result.stderr);
       assert.equal(entry?.message, 'startup failed');
-      assert.match(String(entry?.error), /EADDRINUSE/);
+      assert.match(String((entry?.error as { message?: string } | undefined)?.message), /EADDRINUSE/);
     } finally {
       blocker.close();
     }

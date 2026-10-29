@@ -19,7 +19,8 @@ export async function startLocalPostgres(dataDir: string): Promise<LocalPostgres
   if (!inMemory) fs.mkdirSync(path.resolve(dataDir), { recursive: true });
 
   const db = await PGlite.create(inMemory ? 'memory://' : path.resolve(dataDir));
-  // PGlite is a single-session database, so the pool uses one connection at a time (see index.ts).
+  // PGlite is a single-session database, so the pool uses one connection at a time (max: 1 in
+  // database.ts).
   // The server accepts 2 so a replacement connection isn't rejected while the pool is still
   // closing a client it discarded after a query error.
   // Port 0 lets the OS assign a free port atomically (picking one first and binding it later

@@ -18,12 +18,12 @@ const OriginListSchema = z
 const EnvSchema = z.object({
   NODE_ENV: z.string().optional(),
   // 0 lets the OS pick a free port (useful for tests).
-  PORT: z.coerce.number().int().min(0).max(65_535).default(3000),
+  PORT: z.preprocess(emptyAsUndefined, z.coerce.number().int().min(0).max(65_535).default(3000)),
   DATABASE_URL: z.preprocess(emptyAsUndefined, z.url({ protocol: /^postgres(ql)?$/ }).optional()),
   PGLITE_DIR: z.preprocess(emptyAsUndefined, z.string().min(1).default('./data/pglite')),
   FRONTEND_URL: z.preprocess(emptyAsUndefined, OriginListSchema.default(['http://localhost:5173'])),
-  RATE_LIMIT_WRITES_PER_MINUTE: z.coerce.number().int().positive().default(30),
-  RATE_LIMIT_READS_PER_MINUTE: z.coerce.number().int().positive().default(120),
+  RATE_LIMIT_WRITES_PER_MINUTE: z.preprocess(emptyAsUndefined, z.coerce.number().int().positive().default(30)),
+  RATE_LIMIT_READS_PER_MINUTE: z.preprocess(emptyAsUndefined, z.coerce.number().int().positive().default(120)),
 });
 
 export interface Config {
