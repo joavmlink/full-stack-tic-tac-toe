@@ -1,4 +1,4 @@
-import confetti from 'canvas-confetti';
+import type confetti from 'canvas-confetti';
 import { motion } from 'motion/react';
 import { useEffect } from 'react';
 import { Link } from 'react-router';
@@ -31,15 +31,29 @@ const CONTENT: Record<Winner, { emoji: string; title: string; subtitle: string; 
   },
 };
 
-// No Web Worker: by default confetti creates one from a blob: URL, which the app's
-// Content-Security-Policy blocks in production.
-const fire = confetti.create(undefined, { resize: true, useWorker: false });
+// Loaded on the first win only: most visits never need it.
+let confettiCannon: Promise<confetti.CreateTypes> | undefined;
 
-function fireConfetti() {
+function loadConfetti() {
+  // No Web Worker: by default confetti creates one from a blob: URL, which the app's
+  // Content-Security-Policy blocks in production.
+  confettiCannon ??= import('canvas-confetti').then(({ default: lib }) =>
+    lib.create(undefined, { resize: true, useWorker: false }),
+  );
+  return confettiCannon;
+}
+
+async function fireConfetti() {
   const colors = ['#f472d0', '#2dd4f0', '#fcd34d', '#ffffff'];
   const shared = { particleCount: 90, spread: 70, startVelocity: 55, colors, disableForReducedMotion: true };
-  void fire({ ...shared, angle: 60, origin: { x: 0, y: 0.75 } });
-  void fire({ ...shared, angle: 120, origin: { x: 1, y: 0.75 } });
+  try {
+    const fire = await loadConfetti();
+    void fire({ ...shared, angle: 60, origin: { x: 0, y: 0.75 } });
+    void fire({ ...shared, angle: 120, origin: { x: 1, y: 0.75 } });
+  } catch {
+    // Purely decorative: if the chunk can't load, the result screen works without it.
+    confettiCannon = undefined;
+  }
 }
 
 function SaveIndicator({ status, onRetry }: { status: SaveStatus; onRetry: () => void }) {
@@ -74,7 +88,7 @@ export default function ResultModal({ result, saveStatus, onRematch, onRetrySave
 
   useEffect(() => {
     if (result !== 'You') return;
-    const timer = setTimeout(fireConfetti, REVEAL_DELAY_S * 1000);
+    const timer = setTimeout(() => void fireConfetti(), REVEAL_DELAY_S * 1000);
     return () => clearTimeout(timer);
   }, [result]);
 

@@ -13,6 +13,9 @@ Built with React, Express and PostgreSQL, and deployed on **Vercel** with a **Ne
 - **Play** against the AI (Easy, Normal or an unbeatable Hard mode). A coin flip decides who goes first.
 - **Match History**: every match is stored, newest first, with stats and a detail view.
 - Animated, responsive UI with keyboard and reduced-motion support.
+- **Lazy-loaded pages:** each screen is its own chunk, downloaded only when visited (the confetti
+  library loads only on a win). If a chunk is missing after a new deployment, the app reloads once
+  to pick up the new version.
 
 ## Tech stack
 
@@ -48,7 +51,7 @@ database; in production `DATABASE_URL` is required.
 ```
 ├─ .github/dependabot.yml    # Weekly dependency updates with a 14-day cooldown
 ├─ api/index.js              # Vercel Function entry (re-exports backend/dist/vercel.js)
-├─ vercel.json               # Build, rewrites, security headers, caching
+├─ vercel.json               # Build, rewrites (SPA fallback, never for /assets/), security headers, caching
 ├─ scripts/check-versions.mjs  # Exact-version / lockfile / .npmrc policy check
 ├─ backend/                  # MVC Express API
 │  ├─ src/
@@ -69,7 +72,7 @@ database; in production `DATABASE_URL` is required.
 │  │  └─ lib/                # Small helpers (UTC-3 dates)
 │  └─ tests/                 # Node Test Runner
 └─ frontend/
-   ├─ src/                   # React app (pages, components, game logic, stores)
+   ├─ src/                   # React app (lazy-loaded pages, components, game logic, stores)
    └─ tests/                 # unit (Node Test Runner) and e2e (Playwright)
 ```
 
