@@ -1,6 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { MARK_DRAW_MS } from '../../src/game/mark-animation';
-import { fixRandom, playFullMatch, playUntilEnd, recordBoardTimeline, waitForMatchCreated } from './helpers';
+import {
+  fixRandom,
+  playFullMatch,
+  playMovesUntilFinished,
+  playUntilEnd,
+  recordBoardTimeline,
+  waitForMatchCreated,
+} from './helpers';
 
 // Margin for browser timer imprecision.
 const TIMER_TOLERANCE_MS = 40;
@@ -139,6 +146,28 @@ test.describe('Match against the AI', () => {
     expect(secondId).toBeGreaterThan(first.id);
     await expect(page.getByTestId('result-modal')).toBeHidden();
     await playUntilEnd(page, secondId);
+  });
+
+  test('if someone else finishes your open match first, the result screen says so', async ({ page, request }) => {
+    // Easy AI + fixed random → you go first and win (same setup as the smoke test).
+    await page.addInitScript(() => {
+      localStorage.setItem('tic-tac-toe-settings', JSON.stringify({ state: { difficulty: 'easy' }, version: 0 }));
+    });
+    await fixRandom(page, 0.1);
+    const [created] = await Promise.all([
+      page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/matches'),
+      page.goto('/play'),
+    ]);
+    const { id } = (await created.json()) as { id: number };
+
+    // Anyone who knows the id can finish an open match: do it from outside the page.
+    const closed = await request.patch(`${created.url()}/${id}`, { data: { winner: 'AI' } });
+    expect(closed.status()).toBe(200);
+
+    await playMovesUntilFinished(page);
+    await expect(page.getByTestId('result-modal')).toHaveAttribute('data-result', 'You');
+    await expect(page.getByTestId('save-conflict')).toContainText('already finished elsewhere');
+    await expect(page.getByTestId('save-ok')).toHaveCount(0);
   });
 
   test('shows an error and lets you retry when the backend is down', async ({ page }) => {

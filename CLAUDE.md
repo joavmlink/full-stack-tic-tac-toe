@@ -77,7 +77,7 @@ npm workspaces: `backend` (Express API), `frontend` (React SPA), plus root `api/
 - The game logic and the AI (minimax with Easy/Normal/Hard) are pure modules in `src/game/`, fully client-side.
 - `store/create-game-store.ts` (Zustand) drives a match. It receives the API calls as a dependency, so `tests/unit/game-store.test.ts` runs it with a fake API; `store/game-store.ts` only wires in the real API.
   - Status flow: `idle → starting` (POST) `→ flipping` (coin flip) `→ playing → finished` (PATCH).
-  - Saving retries only network, 429 and 5xx errors, treats a 409 as already saved, and keeps retrying after a rematch.
+  - Saving retries only network, 429 and 5xx errors and keeps retrying after a rematch. On a 409 it reads the match back: the same winner means an earlier attempt was saved (`saved`); a different one means someone finished the open match by its id (`conflict`, shown in the result modal).
   - Leaving `/play` while the POST is pending stops the match once it answers, while tolerating StrictMode's unmount and remount.
   - The turn handoff waits for the mark animation (`MARK_DRAW_MS`).
   - Matches abandoned mid-game stay unfinished in the history.

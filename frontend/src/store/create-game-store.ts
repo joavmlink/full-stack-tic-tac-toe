@@ -10,11 +10,13 @@ import { useSettingsStore } from './settings-store';
 export interface GameApi {
   createMatch: () => Promise<Match>;
   finishMatch: (id: number, winner: Winner) => Promise<Match>;
+  getMatch: (id: number) => Promise<Match>;
 }
 
 export type Player = 'you' | 'ai';
 export type GameStatus = 'idle' | 'starting' | 'flipping' | 'playing' | 'finished' | 'error';
-export type SaveStatus = 'idle' | 'saving' | 'saved' | 'failed';
+/** 'conflict': the match was already finished elsewhere, with a different result. */
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'failed' | 'conflict';
 
 /** Duration of the coin flip that decides who goes first. */
 export const COIN_FLIP_MS = 1900;
@@ -102,9 +104,15 @@ export const createGameStore = (api: GameApi) => create<GameState>()((set, get) 
         report('saved');
         return;
       } catch (error) {
-        // 409: an earlier attempt was saved even though its response never arrived.
+        // 409: the match is already finished. Usually by an earlier attempt whose response never
+        // arrived, but anyone who knows the id can finish an open match: compare the stored winner.
         if (error instanceof ApiError && error.status === 409) {
-          report('saved');
+          try {
+            const stored = await api.getMatch(matchId);
+            report(stored.winner === result ? 'saved' : 'conflict');
+          } catch {
+            report('failed'); // can't tell; "Retry" checks again
+          }
           return;
         }
         if (!isRetryable(error) || attempt === SAVE_ATTEMPTS) break;

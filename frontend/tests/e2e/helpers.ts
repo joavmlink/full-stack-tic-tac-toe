@@ -76,12 +76,29 @@ export async function playUntilEnd(
   id: number,
   { pauseAfterMoveMs = 0 }: { pauseAfterMoveMs?: number } = {},
 ): Promise<Winner> {
-  const board = page.getByTestId('board');
-  const emptyCells = board.locator('[data-empty="true"]');
   const patch = page.waitForResponse(isFinishMatch(id));
   // If the test fails before reaching `await patch`, this wait is cancelled when the page
   // closes; marking it as handled avoids a stray "not a part of any test" error.
   patch.catch(() => {});
+
+  await playMovesUntilFinished(page, { pauseAfterMoveMs });
+
+  const response = await patch;
+  expect(response.status()).toBe(200);
+  const saved = (await response.json()) as { winner: Winner; finishedAt: string };
+  expect(saved.finishedAt).toMatch(/-03:00$/);
+
+  const modal = page.getByTestId('result-modal');
+  await expect(modal).toBeVisible();
+  await expect(modal).toHaveAttribute('data-result', saved.winner);
+  await expect(page.getByTestId('save-ok')).toBeVisible();
+  return saved.winner;
+}
+
+/** Clicks the first free square on each of your turns until the match is over. */
+export async function playMovesUntilFinished(page: Page, { pauseAfterMoveMs = 0 }: { pauseAfterMoveMs?: number } = {}) {
+  const board = page.getByTestId('board');
+  const emptyCells = board.locator('[data-empty="true"]');
 
   for (let move = 0; move < 5; move++) {
     await expect(board).toHaveAttribute('data-state', /^(your-turn|finished)$/, { timeout: 15_000 });
@@ -105,17 +122,6 @@ export async function playUntilEnd(
       .toBe(true);
   }
   await expect(board).toHaveAttribute('data-state', 'finished', { timeout: 15_000 });
-
-  const response = await patch;
-  expect(response.status()).toBe(200);
-  const saved = (await response.json()) as { winner: Winner; finishedAt: string };
-  expect(saved.finishedAt).toMatch(/-03:00$/);
-
-  const modal = page.getByTestId('result-modal');
-  await expect(modal).toBeVisible();
-  await expect(modal).toHaveAttribute('data-result', saved.winner);
-  await expect(page.getByTestId('save-ok')).toBeVisible();
-  return saved.winner;
 }
 
 /** Opens /play and plays a full match. */

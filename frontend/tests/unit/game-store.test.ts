@@ -11,23 +11,31 @@ const match = (id: number, winner: Winner | null = null): Match => ({
   finishedAt: winner ? '2026-10-29T10:01:00.000-03:00' : null,
 });
 
-/** A fake API whose finishMatch answers come from a script, one per call. */
-function fakeApi(finishAnswers: (() => Promise<Match>)[] = []) {
+/**
+ * A fake API whose finishMatch answers come from a script, one per call. getMatch returns the
+ * stored winner (`storedWinner`, by default the last winner sent to finishMatch).
+ */
+function fakeApi(finishAnswers: (() => Promise<Match>)[] = [], storedWinner?: Winner | (() => Promise<Match>)) {
   let nextId = 1;
+  let lastWinner: Winner | null = null;
   const finishCalls: { id: number; winner: Winner }[] = [];
   const api: GameApi = {
     createMatch: async () => match(nextId++),
     finishMatch: (id, winner) => {
       finishCalls.push({ id, winner });
+      lastWinner = winner;
       const answer = finishAnswers.shift();
       return answer ? answer() : Promise.resolve(match(id, winner));
     },
+    getMatch: (id) =>
+      typeof storedWinner === 'function' ? storedWinner() : Promise.resolve(match(id, storedWinner ?? lastWinner)),
   };
   return { api, finishCalls };
 }
 
 const reject = (error: Error) => () => Promise.reject(error);
 const networkError = () => new ApiError(0, 'NETWORK_ERROR', "Couldn't reach the server.");
+const alreadyFinished = () => new ApiError(409, 'MATCH_ALREADY_FINISHED', 'Match 1 is already finished');
 
 /** A store with a finished match that still has to be saved. */
 function finishedStore(api: GameApi, matchId = 1) {
@@ -37,16 +45,29 @@ function finishedStore(api: GameApi, matchId = 1) {
 }
 
 describe('game store: saving the result', () => {
-  test('a 409 on a retry means the first attempt was saved', async () => {
+  test('a 409 with our result stored means an earlier attempt was saved', async () => {
     // The first PATCH reaches the server but its response is lost; the retry finds the match finished.
-    const { api, finishCalls } = fakeApi([
-      reject(networkError()),
-      reject(new ApiError(409, 'MATCH_ALREADY_FINISHED', 'Match 1 is already finished')),
-    ]);
+    const { api, finishCalls } = fakeApi([reject(networkError()), reject(alreadyFinished())]);
     const store = finishedStore(api);
     await store.getState().retrySave();
     assert.equal(store.getState().saveStatus, 'saved');
     assert.equal(finishCalls.length, 2);
+  });
+
+  test('a 409 with a different result stored means the match was finished elsewhere', async () => {
+    // Someone else closed this open match (by its id) with another result before we did.
+    const { api, finishCalls } = fakeApi([reject(alreadyFinished())], 'AI');
+    const store = finishedStore(api);
+    await store.getState().retrySave();
+    assert.equal(store.getState().saveStatus, 'conflict');
+    assert.equal(finishCalls.length, 1);
+  });
+
+  test("a 409 that can't be checked is reported as a failed save", async () => {
+    const { api } = fakeApi([reject(alreadyFinished())], reject(networkError()));
+    const store = finishedStore(api);
+    await store.getState().retrySave();
+    assert.equal(store.getState().saveStatus, 'failed');
   });
 
   test('errors that a retry cannot fix fail right away', async () => {
