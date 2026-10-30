@@ -117,7 +117,7 @@ No configuration is needed: matches are stored in a local PGlite database in `ba
 | `npm run test:unit -w frontend` | Game logic and AI tests |
 | `npm run test:e2e -w frontend` | End-to-end tests against the dev servers |
 | `npm run test:e2e:prod -w frontend` | End-to-end tests against the production build |
-| `npm run test:e2e:remote -w frontend` | Smoke test against a deployment (`E2E_BASE_URL=https://…`) |
+| `npm run test:e2e:remote -w frontend` | Smoke test against a deployment (set `E2E_BASE_URL` to its URL) |
 
 Run `npx playwright install chromium` once per machine before the e2e tests. They start their own
 servers on dedicated ports with an in-memory database, so they never touch your local data.
@@ -199,7 +199,12 @@ new Vercel Function instance starts.
 4. **Deploy.** The first request creates the tables.
 5. **Verify** the deployment:
    ```bash
+   # bash / zsh
    E2E_BASE_URL=https://your-app.vercel.app npm run test:e2e:remote -w frontend
+   ```
+   ```powershell
+   # PowerShell
+   $env:E2E_BASE_URL = "https://your-app.vercel.app"; npm run test:e2e:remote -w frontend
    ```
 
 Every push to `main` deploys to production; other branches get preview deployments.

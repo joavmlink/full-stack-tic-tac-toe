@@ -9,6 +9,9 @@ const WEB_URL = 'http://localhost:4173';
 
 export default defineConfig({
   ...base,
+  // Its own folder: Playwright empties the output folder on start, and sharing it would wipe
+  // the traces of a failed development run.
+  outputDir: 'test-results-prod',
   use: { ...base.use, baseURL: WEB_URL },
   webServer: {
     command: 'npm run build && npm run preview',

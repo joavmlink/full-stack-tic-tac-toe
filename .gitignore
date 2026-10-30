@@ -19,6 +19,7 @@ backend/data/
 
 # Playwright
 frontend/test-results/
+frontend/test-results-prod/
 frontend/playwright-report/
 frontend/blob-report/
 frontend/playwright/.cache/
