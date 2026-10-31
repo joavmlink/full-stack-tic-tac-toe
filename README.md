@@ -267,6 +267,24 @@ The app's own limits stay in place as a second layer.
   Use `npm ci` to install: it installs the lockfile exactly as committed.
 - `.nvmrc` pins Node 24.21.0 for local development; hosting platforms may apply newer 24.x patch releases.
 
+## Known limitations
+
+These are deliberate trade-offs for a single-player game with no accounts and no private data:
+
+- **No accounts:** matches are anonymous and public. Anyone who knows the id of an open match can
+  finish it, once, with any result. If that happens while you're playing, the result screen says the
+  match was already finished elsewhere instead of reporting it as saved.
+- **Results are computed by the browser:** the game and the AI run client-side and the server only
+  stores the outcome, so it can't verify it. Match statistics can be faked and carry no real value.
+- **Open matches never expire:** a match abandoned mid-game stays unfinished in the history.
+- **Inline styles are allowed by the CSP** (`style-src 'unsafe-inline'`): the animation library sets
+  them. Scripts stay restricted to the site's own files.
+
+The write rate limits and the Vercel Firewall rule bound the abuse. If this ever needed protecting,
+the next steps would be a secret token per match (returned only to the browser that created it and
+required to finish it), or accounts with server-side authorization, and the server acting as the
+referee (validating every move and computing the winner).
+
 ## How this was built
 
 This project was built with an AI coding agent, [Claude Code](https://claude.com/claude-code), working
