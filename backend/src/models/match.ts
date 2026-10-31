@@ -20,14 +20,16 @@ export interface MatchPage {
 export type FinishResult =
   | { status: 'ok'; match: Match }
   | { status: 'not_found' }
+  | { status: 'invalid_token' }
   | { status: 'already_finished' };
 
 export interface MatchModel {
-  create(): Promise<Match>;
+  /** `tokenHash`: hash of the token that will be required to finish the match. */
+  create(tokenHash: string): Promise<Match>;
   findPage(options: { limit: number; before?: number | undefined }): Promise<MatchPage>;
   findById(id: number): Promise<Match | undefined>;
   stats(): Promise<MatchStats>;
-  finish(id: number, winner: Winner): Promise<FinishResult>;
+  finish(id: number, winner: Winner, tokenHash: string): Promise<FinishResult>;
 }
 
 
@@ -43,8 +45,11 @@ function toMatch(row: MatchRow): Match {
 /** The only layer that knows SQL. Rows are validated with Zod so corrupted data never reaches the API. */
 export function createMatchModel(pool: Pool): MatchModel {
   return {
-    async create() {
-      const { rows } = await pool.query<MatchRow>(`INSERT INTO matches DEFAULT VALUES RETURNING ${COLUMNS}`);
+    async create(tokenHash) {
+      const { rows } = await pool.query<MatchRow>(
+        `INSERT INTO matches (finish_token_hash) VALUES ($1) RETURNING ${COLUMNS}`,
+        [tokenHash],
+      );
       return toMatch(rows[0]!);
     },
 
@@ -81,18 +86,29 @@ export function createMatchModel(pool: Pool): MatchModel {
       return MatchStatsSchema.parse(rows[0]);
     },
 
-    async finish(id, winner) {
-      // Atomic: only an unfinished match can be finished, even with concurrent requests.
+    async finish(id, winner, tokenHash) {
+      // Atomic: only an unfinished match with this token can be finished, even with concurrent requests.
       const { rows } = await pool.query<MatchRow>(
         `UPDATE matches SET winner = $1, finished_at = now()
-         WHERE id = $2 AND finished_at IS NULL
+         WHERE id = $2 AND finished_at IS NULL AND finish_token_hash = $3
          RETURNING ${COLUMNS}`,
-        [winner, id],
+        [winner, id, tokenHash],
       );
       if (rows[0]) return { status: 'ok', match: toMatch(rows[0]) };
 
-      const { rowCount } = await pool.query('SELECT 1 FROM matches WHERE id = $1', [id]);
-      return rowCount ? { status: 'already_finished' } : { status: 'not_found' };
+      // Tells why it failed. The token is checked first, so only its holder learns the match is finished.
+      // A row without a token (created before tokens existed) compares as NULL: invalid.
+      const {
+        rows: [row],
+      } = await pool.query<MatchRow & { token_matches: boolean | null }>(
+        `SELECT ${COLUMNS}, finish_token_hash = $2 AS token_matches FROM matches WHERE id = $1`,
+        [id, tokenHash],
+      );
+      if (!row) return { status: 'not_found' };
+      if (!row.token_matches) return { status: 'invalid_token' };
+      // Idempotent: the same result again (e.g. a retry whose first response was lost) succeeds.
+      if (row.winner === winner) return { status: 'ok', match: toMatch(row) };
+      return { status: 'already_finished' };
     },
   };
 }

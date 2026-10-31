@@ -1,8 +1,14 @@
 import type { Request, Response } from 'express';
-import { AppError, matchNotFound } from '../errors.js';
+import { AppError, matchNotFound, matchTokenInvalid } from '../errors.js';
+import { createMatchToken } from '../lib/match-token.js';
 import { parseInput } from '../middlewares/validate.js';
 import type { MatchModel } from '../models/match.js';
-import { MatchIdParamsSchema, MatchListQuerySchema, type FinishMatchBody } from '../schemas/matches.js';
+import {
+  MatchIdParamsSchema,
+  MatchListQuerySchema,
+  type CreatedMatch,
+  type FinishMatchBody,
+} from '../schemas/matches.js';
 
 // Thin controllers: bodies arrive already validated by the validateBody middleware, params and
 // queries are parsed here with the same schemas, and the model is the only layer that knows SQL.
@@ -10,7 +16,9 @@ import { MatchIdParamsSchema, MatchListQuerySchema, type FinishMatchBody } from 
 export function createMatchController(model: MatchModel) {
   return {
     async create(_req: Request, res: Response) {
-      res.status(201).json(await model.create());
+      const { token, hash } = createMatchToken();
+      const created: CreatedMatch = { ...(await model.create(hash)), finishToken: token };
+      res.status(201).json(created);
     },
 
     async list(req: Request, res: Response) {
@@ -37,7 +45,9 @@ export function createMatchController(model: MatchModel) {
     async finish(req: Request, res: Response) {
       const { id } = parseInput(MatchIdParamsSchema, req.params);
       const { winner } = req.body as FinishMatchBody;
-      const result = await model.finish(id, winner);
+      const tokenHash = res.locals.matchTokenHash;
+      if (!tokenHash) throw new Error('The requireMatchToken middleware must run before finishing a match');
+      const result = await model.finish(id, winner, tokenHash);
 
       switch (result.status) {
         case 'ok':
@@ -45,8 +55,10 @@ export function createMatchController(model: MatchModel) {
           return;
         case 'not_found':
           throw matchNotFound(id);
+        case 'invalid_token':
+          throw matchTokenInvalid();
         case 'already_finished':
-          throw new AppError(409, 'MATCH_ALREADY_FINISHED', `Match ${id} is already finished`);
+          throw new AppError(409, 'MATCH_ALREADY_FINISHED', `Match ${id} is already finished with another result`);
       }
     },
   };

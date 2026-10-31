@@ -8,6 +8,11 @@ export interface Match {
   finishedAt: string | null;
 }
 
+/** POST /api/matches response: the match plus the secret needed to finish it (sent only here). */
+export interface CreatedMatch extends Match {
+  finishToken: string;
+}
+
 /** Totals over every match (GET /api/matches/stats). */
 export interface MatchCounts {
   wins: number;

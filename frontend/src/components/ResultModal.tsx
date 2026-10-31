@@ -64,10 +64,10 @@ function SaveIndicator({ status, onRetry }: { status: SaveStatus; onRetry: () =>
         ✓ Result saved to your match history
       </p>
     );
-  if (status === 'conflict')
+  if (status === 'rejected')
     return (
-      <p data-testid="save-conflict" className="text-sm text-amber-300">
-        This match was already finished elsewhere, with a different result.
+      <p data-testid="save-rejected" className="text-sm text-amber-300">
+        This match can no longer be saved.
       </p>
     );
   if (status === 'failed')

@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test';
 import { AppError, invalidRequest, matchNotFound } from '../src/errors.js';
 import { toHttpError } from '../src/middlewares/error-handler.js';
-import { createTestDatabase, startTestServer, type ErrorBody, type TestDatabase, type TestServer } from './helpers.js';
+import {
+  bearer,
+  createTestDatabase,
+  startTestServer,
+  type ErrorBody,
+  type TestDatabase,
+  type TestServer,
+} from './helpers.js';
 
 describe('AppError and factories', () => {
   test('keeps status, code, details and headers', () => {
@@ -67,10 +74,13 @@ describe('Request body errors over HTTP', () => {
     await database.close();
   });
 
+  let finishToken: string;
+
   beforeEach(async () => {
     await database.reset();
     server = await startTestServer(database);
-    await fetch(`${server.baseUrl}/api/matches`, { method: 'POST' });
+    const created = await fetch(`${server.baseUrl}/api/matches`, { method: 'POST' });
+    ({ finishToken } = (await created.json()) as { finishToken: string });
   });
 
   afterEach(async () => {
@@ -78,7 +88,11 @@ describe('Request body errors over HTTP', () => {
   });
 
   const patch = (headers: Record<string, string>, body?: string) =>
-    fetch(`${server.baseUrl}/api/matches/1`, { method: 'PATCH', headers, ...(body === undefined ? {} : { body }) });
+    fetch(`${server.baseUrl}/api/matches/1`, {
+      method: 'PATCH',
+      headers: { ...headers, ...bearer(finishToken) },
+      ...(body === undefined ? {} : { body }),
+    });
   const codeOf = async (res: Response) => ((await res.json()) as ErrorBody).error.code;
 
   test('415 when the body is not JSON', async () => {

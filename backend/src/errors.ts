@@ -23,5 +23,8 @@ export class AppError extends Error {
 
 export const matchNotFound = (id: number) => new AppError(404, 'MATCH_NOT_FOUND', `Match ${id} does not exist`);
 
+export const matchTokenInvalid = () =>
+  new AppError(403, 'MATCH_TOKEN_INVALID', 'The token is not valid for this match');
+
 export const invalidRequest = (details: unknown) =>
   new AppError(400, 'VALIDATION_ERROR', 'The request data is invalid', { details });

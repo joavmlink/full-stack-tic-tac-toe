@@ -3,20 +3,23 @@ import { ApiError, errorMessage } from '../api/errors';
 import { chooseAiMove } from '../game/ai';
 import { createEmptyBoard, getWinner, isDraw, placeMark, type Board, type Line, type Mark } from '../game/logic';
 import { MARK_DRAW_MS } from '../game/mark-animation';
-import type { Match, Winner } from '../types/match';
+import type { CreatedMatch, Match, Winner } from '../types/match';
 import { useSettingsStore } from './settings-store';
 
 /** The API calls a match needs. Injected, so tests can run the store without a server. */
 export interface GameApi {
-  createMatch: () => Promise<Match>;
-  finishMatch: (id: number, winner: Winner) => Promise<Match>;
-  getMatch: (id: number) => Promise<Match>;
+  createMatch: () => Promise<CreatedMatch>;
+  /** `token`: the secret returned when the match was created; only it can finish the match. */
+  finishMatch: (id: number, winner: Winner, token: string) => Promise<Match>;
 }
 
 export type Player = 'you' | 'ai';
 export type GameStatus = 'idle' | 'starting' | 'flipping' | 'playing' | 'finished' | 'error';
-/** 'conflict': the match was already finished elsewhere, with a different result. */
-export type SaveStatus = 'idle' | 'saving' | 'saved' | 'failed' | 'conflict';
+/**
+ * 'failed': the retries ran out on errors that may go away (network, 429, 5xx), so the player can
+ * retry. 'rejected': the server refused the save (4xx), and retrying would get the same answer.
+ */
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'failed' | 'rejected';
 
 /** Duration of the coin flip that decides who goes first. */
 export const COIN_FLIP_MS = 1900;
@@ -28,6 +31,8 @@ const SAVE_ATTEMPTS = 3;
 interface GameState {
   status: GameStatus;
   matchId: number | null;
+  /** Secret needed to finish the current match. Kept in memory only, never in localStorage. */
+  matchToken: string | null;
   board: Board;
   humanMark: Mark;
   aiMark: Mark;
@@ -89,8 +94,8 @@ export const createGameStore = (api: GameApi) => create<GameState>()((set, get) 
   }
 
   async function saveResult() {
-    const { matchId, result } = get();
-    if (matchId === null || result === null) return;
+    const { matchId, matchToken, result } = get();
+    if (matchId === null || matchToken === null || result === null) return;
     // The status is only shown while this match is still on screen, but the retries go on after
     // a rematch: the finished match must still be saved.
     const report = (saveStatus: SaveStatus) => {
@@ -100,22 +105,16 @@ export const createGameStore = (api: GameApi) => create<GameState>()((set, get) 
     report('saving');
     for (let attempt = 1; attempt <= SAVE_ATTEMPTS; attempt++) {
       try {
-        await api.finishMatch(matchId, result);
+        await api.finishMatch(matchId, result, matchToken);
         report('saved');
         return;
       } catch (error) {
-        // 409: the match is already finished. Usually by an earlier attempt whose response never
-        // arrived, but anyone who knows the id can finish an open match: compare the stored winner.
-        if (error instanceof ApiError && error.status === 409) {
-          try {
-            const stored = await api.getMatch(matchId);
-            report(stored.winner === result ? 'saved' : 'conflict');
-          } catch {
-            report('failed'); // can't tell; "Retry" checks again
-          }
+        // A retry after a lost response is safe: the server answers the same result again with 200.
+        if (!isRetryable(error)) {
+          report('rejected');
           return;
         }
-        if (!isRetryable(error) || attempt === SAVE_ATTEMPTS) break;
+        if (attempt === SAVE_ATTEMPTS) break;
         await sleep(600 * attempt);
       }
     }
@@ -143,6 +142,7 @@ export const createGameStore = (api: GameApi) => create<GameState>()((set, get) 
   return {
     status: 'idle',
     matchId: null,
+    matchToken: null,
     board: createEmptyBoard(),
     humanMark: 'X',
     aiMark: 'O',
@@ -166,6 +166,7 @@ export const createGameStore = (api: GameApi) => create<GameState>()((set, get) 
       set({
         status: 'starting',
         matchId: null,
+        matchToken: null,
         board: createEmptyBoard(),
         starter: null,
         result: null,
@@ -174,9 +175,9 @@ export const createGameStore = (api: GameApi) => create<GameState>()((set, get) 
         error: null,
       });
 
-      let matchId: number;
+      let created: CreatedMatch;
       try {
-        matchId = (await api.createMatch()).id;
+        created = await api.createMatch();
       } catch (error) {
         set({ status: 'error', error: errorMessage(error) });
         return;
@@ -189,8 +190,10 @@ export const createGameStore = (api: GameApi) => create<GameState>()((set, get) 
 
       // 50/50 coin flip: whoever goes first plays X.
       const starter: Player = Math.random() < 0.5 ? 'you' : 'ai';
+      const matchId = created.id;
       set({
         matchId,
+        matchToken: created.finishToken,
         starter,
         turn: starter,
         humanMark: starter === 'you' ? 'X' : 'O',

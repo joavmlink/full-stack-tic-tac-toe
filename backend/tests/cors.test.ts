@@ -28,16 +28,16 @@ describe('CORS', () => {
       headers: {
         Origin: origin,
         'Access-Control-Request-Method': method,
-        'Access-Control-Request-Headers': 'content-type',
+        'Access-Control-Request-Headers': 'content-type, authorization',
       },
     });
 
-  test('the preflight from the frontend allows the origin, methods and Content-Type', async () => {
+  test('the preflight from the frontend allows the origin, methods, Content-Type and Authorization', async () => {
     const res = await preflight(FRONTEND_URL, 'PATCH');
     assert.equal(res.status, 204);
     assert.equal(res.headers.get('access-control-allow-origin'), FRONTEND_URL);
     assert.equal(res.headers.get('access-control-allow-methods'), 'GET,POST,PATCH');
-    assert.equal(res.headers.get('access-control-allow-headers'), 'Content-Type');
+    assert.equal(res.headers.get('access-control-allow-headers'), 'Content-Type,Authorization');
   });
 
   test('responses to the frontend include Access-Control-Allow-Origin', async () => {

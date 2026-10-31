@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { ApiError } from '../../src/api/errors';
 import { createGameStore, type GameApi } from '../../src/store/create-game-store';
-import type { Match, Winner } from '../../src/types/match';
+import type { CreatedMatch, Match, Winner } from '../../src/types/match';
 
 const match = (id: number, winner: Winner | null = null): Match => ({
   id,
@@ -11,71 +11,81 @@ const match = (id: number, winner: Winner | null = null): Match => ({
   finishedAt: winner ? '2026-10-29T10:01:00.000-03:00' : null,
 });
 
-/**
- * A fake API whose finishMatch answers come from a script, one per call. getMatch returns the
- * stored winner (`storedWinner`, by default the last winner sent to finishMatch).
- */
-function fakeApi(finishAnswers: (() => Promise<Match>)[] = [], storedWinner?: Winner | (() => Promise<Match>)) {
+/** The token the fake API issues for a match. */
+const tokenOf = (id: number) => `token-of-match-${id}`;
+
+const createdMatch = (id: number): CreatedMatch => ({ ...match(id), finishToken: tokenOf(id) });
+
+/** A fake API whose finishMatch answers come from a script, one per call. */
+function fakeApi(finishAnswers: (() => Promise<Match>)[] = []) {
   let nextId = 1;
-  let lastWinner: Winner | null = null;
-  const finishCalls: { id: number; winner: Winner }[] = [];
+  const finishCalls: { id: number; winner: Winner; token: string }[] = [];
   const api: GameApi = {
-    createMatch: async () => match(nextId++),
-    finishMatch: (id, winner) => {
-      finishCalls.push({ id, winner });
-      lastWinner = winner;
+    createMatch: async () => createdMatch(nextId++),
+    finishMatch: (id, winner, token) => {
+      finishCalls.push({ id, winner, token });
       const answer = finishAnswers.shift();
       return answer ? answer() : Promise.resolve(match(id, winner));
     },
-    getMatch: (id) =>
-      typeof storedWinner === 'function' ? storedWinner() : Promise.resolve(match(id, storedWinner ?? lastWinner)),
   };
   return { api, finishCalls };
 }
 
 const reject = (error: Error) => () => Promise.reject(error);
 const networkError = () => new ApiError(0, 'NETWORK_ERROR', "Couldn't reach the server.");
-const alreadyFinished = () => new ApiError(409, 'MATCH_ALREADY_FINISHED', 'Match 1 is already finished');
 
 /** A store with a finished match that still has to be saved. */
 function finishedStore(api: GameApi, matchId = 1) {
   const store = createGameStore(api);
-  store.setState({ status: 'finished', matchId, result: 'You' });
+  store.setState({ status: 'finished', matchId, matchToken: tokenOf(matchId), result: 'You' });
   return store;
 }
 
 describe('game store: saving the result', () => {
-  test('a 409 with our result stored means an earlier attempt was saved', async () => {
-    // The first PATCH reaches the server but its response is lost; the retry finds the match finished.
-    const { api, finishCalls } = fakeApi([reject(networkError()), reject(alreadyFinished())]);
+  test('a new match keeps the token it was issued and sends it when saving', async () => {
+    const { api, finishCalls } = fakeApi();
+    const store = createGameStore(api);
+    await store.getState().startMatch();
+    assert.equal(store.getState().matchToken, tokenOf(1));
+
+    store.setState({ status: 'finished', result: 'Draw' });
+    await store.getState().retrySave();
+    assert.deepEqual(finishCalls, [{ id: 1, winner: 'Draw', token: tokenOf(1) }]);
+    store.getState().abandon(); // clears the coin-flip timer
+  });
+
+  test('a save whose first response was lost is retried and saved', async () => {
+    // The server answers the repeated, identical request with 200 (finishing is idempotent).
+    const { api, finishCalls } = fakeApi([reject(networkError())]);
     const store = finishedStore(api);
     await store.getState().retrySave();
     assert.equal(store.getState().saveStatus, 'saved');
     assert.equal(finishCalls.length, 2);
   });
 
-  test('a 409 with a different result stored means the match was finished elsewhere', async () => {
-    // Someone else closed this open match (by its id) with another result before we did.
-    const { api, finishCalls } = fakeApi([reject(alreadyFinished())], 'AI');
-    const store = finishedStore(api);
-    await store.getState().retrySave();
-    assert.equal(store.getState().saveStatus, 'conflict');
-    assert.equal(finishCalls.length, 1);
-  });
+  for (const [status, code] of [
+    [400, 'VALIDATION_ERROR'],
+    [401, 'MATCH_TOKEN_REQUIRED'],
+    [403, 'MATCH_TOKEN_INVALID'],
+    [404, 'MATCH_NOT_FOUND'],
+    [409, 'MATCH_ALREADY_FINISHED'],
+  ] as const) {
+    test(`a ${status} can't be fixed by retrying: the save ends as rejected, without retries`, async () => {
+      const { api, finishCalls } = fakeApi([reject(new ApiError(status, code, 'Rejected'))]);
+      const store = finishedStore(api);
+      await store.getState().retrySave();
+      assert.equal(store.getState().saveStatus, 'rejected');
+      assert.equal(finishCalls.length, 1);
+    });
+  }
 
-  test("a 409 that can't be checked is reported as a failed save", async () => {
-    const { api } = fakeApi([reject(alreadyFinished())], reject(networkError()));
+  test('retries that run out end as failed, so the player can try again', async () => {
+    const unavailable = reject(new ApiError(503, 'SERVICE_UNAVAILABLE', 'Unavailable'));
+    const { api, finishCalls } = fakeApi([unavailable, unavailable, unavailable]);
     const store = finishedStore(api);
     await store.getState().retrySave();
     assert.equal(store.getState().saveStatus, 'failed');
-  });
-
-  test('errors that a retry cannot fix fail right away', async () => {
-    const { api, finishCalls } = fakeApi([reject(new ApiError(404, 'MATCH_NOT_FOUND', 'Match 1 not found'))]);
-    const store = finishedStore(api);
-    await store.getState().retrySave();
-    assert.equal(store.getState().saveStatus, 'failed');
-    assert.equal(finishCalls.length, 1);
+    assert.equal(finishCalls.length, 3);
   });
 
   test('server and network errors are retried', async () => {
@@ -93,9 +103,13 @@ describe('game store: saving the result', () => {
     await store.getState().startMatch(); // "Rematch" while the first save waits to retry
 
     await saving;
+    // Both attempts are for the old match, with its own token.
     assert.deepEqual(
-      finishCalls.map((call) => call.id),
-      [41, 41],
+      finishCalls.map((call) => [call.id, call.token]),
+      [
+        [41, tokenOf(41)],
+        [41, tokenOf(41)],
+      ],
     );
     // The new match isn't affected by the old match's save status.
     assert.notEqual(store.getState().matchId, 41);
@@ -105,14 +119,14 @@ describe('game store: saving the result', () => {
 
 describe('game store: leaving the page', () => {
   test('leaving while the match is being created stops it', async () => {
-    let created!: (value: Match) => void;
+    let created!: (value: CreatedMatch) => void;
     const { api } = fakeApi();
     api.createMatch = () => new Promise((resolve) => (created = resolve));
     const store = createGameStore(api);
 
     const starting = store.getState().startMatch();
     store.getState().abandon(); // the player leaves /play before POST /matches answers
-    created(match(1));
+    created(createdMatch(1));
     await starting;
 
     assert.equal(store.getState().status, 'idle');
@@ -120,7 +134,7 @@ describe('game store: leaving the page', () => {
   });
 
   test("StrictMode's unmount and remount in development keeps the match", async () => {
-    let created!: (value: Match) => void;
+    let created!: (value: CreatedMatch) => void;
     let posts = 0;
     const { api } = fakeApi();
     api.createMatch = () => {
@@ -132,7 +146,7 @@ describe('game store: leaving the page', () => {
     const starting = store.getState().startMatch(); // mount
     store.getState().abandon(); // StrictMode's immediate unmount…
     void store.getState().startMatch(); // …and remount
-    created(match(1));
+    created(createdMatch(1));
     await starting;
 
     assert.equal(posts, 1);

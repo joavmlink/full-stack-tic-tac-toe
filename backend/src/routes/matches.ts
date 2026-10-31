@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { createMatchController } from '../controllers/matches.js';
+import { requireMatchToken } from '../middlewares/match-token.js';
 import { methodNotAllowed, requireJson, validateBody } from '../middlewares/validate.js';
 import type { MatchModel } from '../models/match.js';
 import { FinishMatchBodySchema } from '../schemas/matches.js';
@@ -16,7 +17,7 @@ export function createMatchesRouter(model: MatchModel): Router {
   router
     .route('/:id')
     .get(controller.getById)
-    .patch(requireJson, validateBody(FinishMatchBodySchema), controller.finish)
+    .patch(requireMatchToken, requireJson, validateBody(FinishMatchBodySchema), controller.finish)
     .all(methodNotAllowed('GET', 'PATCH'));
 
   return router;

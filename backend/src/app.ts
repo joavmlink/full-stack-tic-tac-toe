@@ -50,7 +50,8 @@ export function createApp({
     cors({
       origin: frontendUrls,
       methods: ['GET', 'POST', 'PATCH'],
-      allowedHeaders: ['Content-Type'],
+      // Authorization carries the match token (Bearer) when finishing a match.
+      allowedHeaders: ['Content-Type', 'Authorization'],
       // Lets a frontend on another origin (Vite dev server) read the pagination header.
       exposedHeaders: ['Link'],
     }),

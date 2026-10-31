@@ -148,7 +148,7 @@ test.describe('Match against the AI', () => {
     await playUntilEnd(page, secondId);
   });
 
-  test('if someone else finishes your open match first, the result screen says so', async ({ page, request }) => {
+  test('only the browser that started a match can finish it', async ({ page, request }) => {
     // Easy AI + fixed random → you go first and win (same setup as the smoke test).
     await page.addInitScript(() => {
       localStorage.setItem('tic-tac-toe-settings', JSON.stringify({ state: { difficulty: 'easy' }, version: 0 }));
@@ -159,15 +159,37 @@ test.describe('Match against the AI', () => {
       page.goto('/play'),
     ]);
     const { id } = (await created.json()) as { id: number };
+    const matchUrl = `${created.url()}/${id}`;
 
-    // Anyone who knows the id can finish an open match: do it from outside the page.
-    const closed = await request.patch(`${created.url()}/${id}`, { data: { winner: 'AI' } });
-    expect(closed.status()).toBe(200);
+    // From outside the page: without the token, and with the token of another match.
+    const withoutToken = await request.patch(matchUrl, { data: { winner: 'AI' } });
+    expect(withoutToken.status()).toBe(401);
+    const other = (await (await request.post(created.url())).json()) as { finishToken: string };
+    const otherToken = await request.patch(matchUrl, {
+      data: { winner: 'AI' },
+      headers: { Authorization: `Bearer ${other.finishToken}` },
+    });
+    expect(otherToken.status()).toBe(403);
 
+    // The player's own browser still finishes and saves it.
+    expect(await playUntilEnd(page, id)).toBe('You');
+  });
+
+  test('when the server rejects the save, the result screen says so and offers no retry', async ({ page }) => {
+    await page.route('**/api/matches/*', (route) =>
+      route.request().method() === 'PATCH'
+        ? route.fulfill({
+            status: 403,
+            json: { error: { code: 'MATCH_TOKEN_INVALID', message: 'The token is not valid for this match' } },
+          })
+        : route.continue(),
+    );
+    await waitForMatchCreated(page, () => page.goto('/play'));
     await playMovesUntilFinished(page);
-    await expect(page.getByTestId('result-modal')).toHaveAttribute('data-result', 'You');
-    await expect(page.getByTestId('save-conflict')).toContainText('already finished elsewhere');
-    await expect(page.getByTestId('save-ok')).toHaveCount(0);
+
+    const modal = page.getByTestId('result-modal');
+    await expect(page.getByTestId('save-rejected')).toContainText('can no longer be saved');
+    await expect(modal.getByRole('button', { name: 'Retry' })).toHaveCount(0);
   });
 
   test('shows an error and lets you retry when the backend is down', async ({ page }) => {

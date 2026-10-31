@@ -1,5 +1,5 @@
 import { nextCursorFromLink } from '../lib/pagination';
-import type { Match, MatchCounts, Winner } from '../types/match';
+import type { CreatedMatch, Match, MatchCounts, Winner } from '../types/match';
 import { apiRequest, apiRequestWithHeaders } from './client';
 
 export interface MatchPage {
@@ -8,10 +8,15 @@ export interface MatchPage {
   nextCursor: number | null;
 }
 
-export const createMatch = () => apiRequest<Match>('/matches', { method: 'POST' });
+export const createMatch = () => apiRequest<CreatedMatch>('/matches', { method: 'POST' });
 
-export const finishMatch = (id: number, winner: Winner) =>
-  apiRequest<Match>(`/matches/${id}`, { method: 'PATCH', body: { winner } });
+/** Only the token returned by createMatch can finish that match. */
+export const finishMatch = (id: number, winner: Winner, token: string) =>
+  apiRequest<Match>(`/matches/${id}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: { winner },
+  });
 
 /** One page of matches, most recent first (the API returns 20 per page by default). */
 export async function listMatches(before?: number): Promise<MatchPage> {

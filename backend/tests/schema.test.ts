@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, test } from 'node:test';
+import { openDatabase } from '../src/db/database.js';
 import { ensureSchema } from '../src/db/schema.js';
 import { createTestDatabase, type TestDatabase } from './helpers.js';
 
@@ -26,6 +27,35 @@ describe('Database schema', () => {
     assert.equal(rows[0]!.count, 1);
   });
 
+  test('upgrades a database created before match tokens, keeping its rows', async () => {
+    // The matches table as it was before finish_token_hash existed (e.g. an existing Neon database).
+    const old = await openDatabase({ pgliteDir: 'memory://' });
+    try {
+      await old.pool.query(`
+        CREATE TABLE matches (
+          id          INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          winner      TEXT CHECK (winner IN ('You', 'AI', 'Draw')),
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+          finished_at TIMESTAMPTZ
+        );
+        INSERT INTO matches (winner, finished_at) VALUES ('You', now());
+        INSERT INTO matches DEFAULT VALUES;
+      `);
+
+      await ensureSchema(old.pool);
+
+      const { rows } = await old.pool.query<{ winner: string | null; finish_token_hash: string | null }>(
+        'SELECT winner, finish_token_hash FROM matches ORDER BY id',
+      );
+      assert.deepEqual(rows, [
+        { winner: 'You', finish_token_hash: null },
+        { winner: null, finish_token_hash: null },
+      ]);
+    } finally {
+      await old.close();
+    }
+  });
+
   test('uses snake_case columns with native timestamps', async () => {
     const { rows } = await database.pool.query<{ column_name: string; data_type: string }>(
       `SELECT column_name, data_type FROM information_schema.columns
@@ -36,6 +66,7 @@ describe('Database schema', () => {
       { column_name: 'winner', data_type: 'text' },
       { column_name: 'created_at', data_type: 'timestamp with time zone' },
       { column_name: 'finished_at', data_type: 'timestamp with time zone' },
+      { column_name: 'finish_token_hash', data_type: 'text' },
     ]);
   });
 

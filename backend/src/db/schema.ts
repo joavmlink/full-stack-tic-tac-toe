@@ -9,6 +9,19 @@ const SCHEMA_SQL = `
     CONSTRAINT matches_winner_finished_at_consistency CHECK ((winner IS NULL) = (finished_at IS NULL))
   );
   CREATE INDEX IF NOT EXISTS matches_created_at_id_idx ON matches (created_at DESC, id DESC);
+  -- SHA-256 of the token that finishes the match. Added separately so existing databases get it;
+  -- rows created before it have no token and can't be finished. Checked first because ALTER TABLE
+  -- locks the table exclusively even when IF NOT EXISTS makes it a no-op, and this runs on every
+  -- cold start.
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = 'matches' AND column_name = 'finish_token_hash'
+    ) THEN
+      ALTER TABLE matches ADD COLUMN finish_token_hash TEXT;
+    END IF;
+  END $$;
 
   CREATE TABLE IF NOT EXISTS rate_limit_hits (
     key      TEXT PRIMARY KEY,

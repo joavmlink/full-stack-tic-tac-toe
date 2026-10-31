@@ -12,6 +12,11 @@ export const MatchSchema = z.object({
   finishedAt: z.iso.datetime({ offset: true }).nullable(),
 });
 
+/** POST /matches response: the match plus the token needed to finish it (returned only here). */
+export const CreatedMatchSchema = MatchSchema.extend({
+  finishToken: z.string(),
+});
+
 /** A positive PostgreSQL INTEGER received as a string (path or query parameter). */
 const PositiveIntParam = (message: string) =>
   z.string().regex(/^\d+$/, message).transform(Number).pipe(z.number().int().positive().max(2_147_483_647));
@@ -48,6 +53,7 @@ export const MatchStatsSchema = z.object({
 
 export type Winner = z.infer<typeof WinnerSchema>;
 export type Match = z.infer<typeof MatchSchema>;
+export type CreatedMatch = z.infer<typeof CreatedMatchSchema>;
 export type MatchStats = z.infer<typeof MatchStatsSchema>;
 export type MatchListQuery = z.infer<typeof MatchListQuerySchema>;
 export type FinishMatchBody = z.infer<typeof FinishMatchBodySchema>;

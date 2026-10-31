@@ -51,6 +51,7 @@ database; in production `DATABASE_URL` is required.
 ```
 ├─ .github/dependabot.yml    # Weekly dependency updates with a 14-day cooldown
 ├─ CLAUDE.md                 # Instructions for Claude Code: working agreement, commands, architecture
+├─ SECURITY.md               # How to report a vulnerability privately
 ├─ api/index.js              # Vercel Function entry (re-exports backend/dist/vercel.js)
 ├─ vercel.json               # Build, rewrites (SPA fallback, never for /assets/), security headers, caching
 ├─ scripts/check-versions.mjs  # Exact-version / lockfile / .npmrc policy check
@@ -137,11 +138,11 @@ type Match = {
 
 | Method | Path | Description | Responses |
 |---|---|---|---|
-| `POST` | `/matches` | Creates a match with `winner: null` | `201` · `429` |
+| `POST` | `/matches` | Creates a match with `winner: null`. The response adds `finishToken` (see below) | `201` · `429` |
 | `GET` | `/matches?limit=&before=` | Matches, most recent first, one page at a time (see below) | `200` · `400` · `429` |
 | `GET` | `/matches/stats` | Totals over every match: `{ wins, losses, draws, unfinished, total }` | `200` · `429` |
 | `GET` | `/matches/:id` | One match | `200` · `400` invalid id · `404` |
-| `PATCH` | `/matches/:id` | Finishes a match. Body: `{ "winner": "You" \| "AI" \| "Draw" }` | `200` · `400` · `404` · `409` already finished · `429` |
+| `PATCH` | `/matches/:id` | Finishes a match. Header: `Authorization: Bearer <finishToken>`. Body: `{ "winner": "You" \| "AI" \| "Draw" }` | `200` (also when repeating the same result) · `400` · `401` · `403` · `404` · `409` another result · `429` |
 | `GET` | `/health` | Health check | `200` |
 
 Every response is JSON, including errors: `{ "error": { "code": "MATCH_NOT_FOUND", "message": "…", "details"?: […] } }`.
@@ -149,15 +150,21 @@ Every response is JSON, including errors: `{ "error": { "code": "MATCH_NOT_FOUND
 | Status | Code | When |
 |---|---|---|
 | `400` | `VALIDATION_ERROR` · `INVALID_JSON` · `BAD_REQUEST` | Invalid id, body or JSON |
+| `401` | `MATCH_TOKEN_REQUIRED` | `PATCH` without a Bearer token (with a `WWW-Authenticate: Bearer` header) |
+| `403` | `MATCH_TOKEN_INVALID` | `PATCH` with a token that isn't the one issued for that match |
 | `404` | `MATCH_NOT_FOUND` · `ROUTE_NOT_FOUND` | Unknown match or route |
 | `405` | `METHOD_NOT_ALLOWED` | Unsupported method on a known route (with an `Allow` header) |
-| `409` | `MATCH_ALREADY_FINISHED` | The match already has a result |
+| `409` | `MATCH_ALREADY_FINISHED` | The match already has a different result (repeating the same one is idempotent and returns `200`) |
 | `413` | `PAYLOAD_TOO_LARGE` | Body larger than 10 KB |
 | `415` | `UNSUPPORTED_MEDIA_TYPE` | Body that isn't JSON, or an unsupported charset / content encoding |
 | `429` | `RATE_LIMITED` | Too many reads or writes; see the `RateLimit` / `RateLimit-Policy` headers |
 | `500` | `INTERNAL_ERROR` | Unexpected error (details are only logged on the server) |
 | `503` | `SERVICE_UNAVAILABLE` | Database unreachable, too slow or out of connections (`Retry-After: 5`) |
 | `503` | `SERVER_MISCONFIGURED` | Missing or invalid environment variables on the deployment (`Retry-After: 60`) |
+
+**Match token:** `POST /matches` returns a `finishToken`, a random 256-bit secret, only in that response.
+The server stores just its SHA-256 hash, and finishing the match requires it as a Bearer token, so only the
+browser that created a match can finish it. The frontend keeps it in memory, never in `localStorage`.
 
 **Pagination:** `GET /matches` returns at most `limit` matches (default 20, max 100) as a plain JSON array.
 When there are older matches, the response includes a standard
@@ -178,6 +185,7 @@ CREATE TABLE matches (
   winner      TEXT CHECK (winner IN ('You', 'AI', 'Draw')),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   finished_at TIMESTAMPTZ,
+  finish_token_hash TEXT, -- SHA-256 of the match token
   CHECK ((winner IS NULL) = (finished_at IS NULL))
 );
 ```
@@ -229,6 +237,8 @@ The app's own limits stay in place as a second layer.
 - **Secrets:** the only secret is `DATABASE_URL`. Locally it lives in `backend/.env` (git-ignored);
   on Vercel it's a Sensitive environment variable. It's never exposed to the browser.
 - **Input validation:** params and bodies are validated with Zod; SQL queries are parameterized.
+- **Match tokens:** finishing a match requires the secret issued when it was created (a Bearer token,
+  stored only as a SHA-256 hash), checked atomically in the same `UPDATE` that saves the result.
 - **Rate limiting:** two layers. At the edge, an optional Vercel Firewall rule (see above). In the app,
   writes are limited per client IP with counters in PostgreSQL (shared by every function instance) and
   reads with in-memory counters (no database cost). Only a SHA-256 hash of the IP is ever stored.
@@ -248,8 +258,9 @@ The app's own limits stay in place as a second layer.
   are usually caught and pulled within days. A security fix newer than the window is installed as a
   one-off exception, e.g. `npm audit fix --min-release-age-exclude=<package>` (this is how
   `body-parser` 2.4.0 got in: it fixes a high-severity DoS advisory).
-- Recommended GitHub settings: enable **Secret scanning**, **Push protection** and **Dependabot alerts**
-  (security alerts are not delayed by the cooldown).
+- Recommended GitHub settings: enable **Secret scanning**, **Push protection**, **Dependabot alerts**
+  (security alerts are not delayed by the cooldown) and **Private vulnerability reporting**.
+- **Reporting:** vulnerabilities are reported privately, as described in [SECURITY.md](SECURITY.md).
 
 ## Operation
 
@@ -271,19 +282,18 @@ The app's own limits stay in place as a second layer.
 
 These are deliberate trade-offs for a single-player game with no accounts and no private data:
 
-- **No accounts:** matches are anonymous and public. Anyone who knows the id of an open match can
-  finish it, once, with any result. If that happens while you're playing, the result screen says the
-  match was already finished elsewhere instead of reporting it as saved.
+- **No accounts:** matches are anonymous and the match history is public. Each match can only be
+  finished by the browser that created it (with its match token).
 - **Results are computed by the browser:** the game and the AI run client-side and the server only
-  stores the outcome, so it can't verify it. Match statistics can be faked and carry no real value.
+  stores the outcome, so a player can misreport the result of their own matches. That gives nothing
+  that simply playing doesn't: any result can be reached by playing (on Easy you win almost every
+  match). There are no rankings or prizes, and the statistics carry no real value.
 - **Open matches never expire:** a match abandoned mid-game stays unfinished in the history.
 - **Inline styles are allowed by the CSP** (`style-src 'unsafe-inline'`): the animation library sets
   them. Scripts stay restricted to the site's own files.
 
-The write rate limits and the Vercel Firewall rule bound the abuse. If this ever needed protecting,
-the next steps would be a secret token per match (returned only to the browser that created it and
-required to finish it), or accounts with server-side authorization, and the server acting as the
-referee (validating every move and computing the winner).
+If results ever needed to be trustworthy (rankings, prizes), the next step would be accounts and the
+server acting as the referee: validating every move and computing the winner.
 
 ## How this was built
 

@@ -84,6 +84,11 @@ export function jsonBody(data: unknown): RequestInit {
   return { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) };
 }
 
+/** The Authorization header that carries a match token. */
+export function bearer(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
+}
+
 export interface ErrorBody {
   error: { code: string; message: string };
 }
