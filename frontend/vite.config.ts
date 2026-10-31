@@ -13,15 +13,21 @@ const securityHeaders = Object.fromEntries(
   (vercel.headers.find((rule) => rule.source === '/(.*)')?.headers ?? []).map(({ key, value }) => [key, value]),
 );
 
+// The e2e configs set E2E_HOST=127.0.0.1: by default Vite listens only on the address `localhost`
+// resolves to first (::1 on Windows), and a browser that connects to `localhost` over IPv4 can stall.
+const host = process.env.E2E_HOST;
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
+    host,
     port: 5173,
     // The backend allows one exact origin via CORS (FRONTEND_URL): never switch ports silently.
     strictPort: true,
   },
   // `vite preview` mimics Vercel locally: static build + /api proxied to the backend + same headers.
   preview: {
+    host,
     port: 4173,
     strictPort: true,
     headers: securityHeaders,

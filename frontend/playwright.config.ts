@@ -4,8 +4,10 @@ import { defineConfig, devices } from '@playwright/test';
 // Dedicated ports so e2e never clashes with `npm run dev` (3000 / 5173).
 const API_PORT = 3100;
 const WEB_PORT = 5174;
-const WEB_URL = `http://localhost:${WEB_PORT}`;
-const API_URL = `http://localhost:${API_PORT}/api`;
+// 127.0.0.1 rather than localhost: one exact address for the browser and the servers (see E2E_HOST).
+export const E2E_HOST = '127.0.0.1';
+const WEB_URL = `http://${E2E_HOST}:${WEB_PORT}`;
+const API_URL = `http://${E2E_HOST}:${API_PORT}/api`;
 
 /** Backend env shared by the e2e configs: in-memory PostgreSQL (PGlite) and no practical rate limits. */
 export const E2E_BACKEND_ENV = {
@@ -41,7 +43,7 @@ export default defineConfig({
       command: `npm run dev -- --port ${WEB_PORT}`,
       url: WEB_URL,
       reuseExistingServer: false,
-      env: { VITE_API_URL: API_URL },
+      env: { VITE_API_URL: API_URL, E2E_HOST },
     },
   ],
 });
