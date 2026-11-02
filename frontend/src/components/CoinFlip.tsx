@@ -2,6 +2,8 @@ import { motion } from 'motion/react';
 import type { Player } from '../store/game-store';
 
 const SPIN_SECONDS = 1.1;
+/** How high the coin jumps. The same space is kept free above it, so it doesn't reach the heading. */
+const JUMP_PX = 70;
 
 const faceStyle = { backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' } as const;
 
@@ -22,13 +24,16 @@ export default function CoinFlip({ starter }: { starter: Player }) {
       className="fixed inset-0 z-40 grid place-items-center bg-night/70 backdrop-blur-sm"
     >
       <div className="flex flex-col items-center gap-6 px-4 text-center">
-        <p className="text-sm uppercase tracking-[0.3em] text-white/60">Who goes first?</p>
-        <div style={{ perspective: 800 }}>
+        <p data-testid="coin-heading" className="text-sm uppercase tracking-[0.3em] text-white/60">
+          Who goes first?
+        </p>
+        <div style={{ perspective: 800, marginTop: JUMP_PX }}>
           <motion.div
+            data-testid="coin"
             className="relative size-36 sm:size-40"
             style={{ transformStyle: 'preserve-3d' }}
             initial={{ rotateY: 0, y: 0 }}
-            animate={{ rotateY: finalRotation, y: [0, -70, 0] }}
+            animate={{ rotateY: finalRotation, y: [0, -JUMP_PX, 0] }}
             transition={{ duration: SPIN_SECONDS, ease: [0.2, 0.7, 0.3, 1] }}
           >
             <div
