@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - When the user asks to see a plan first or not to touch code yet, present the plan and wait for approval before editing files.
 - The user runs `git push` himself (this shell can't complete the Git Credential Manager login). Leave commits ready and verified, then hand over.
 - Commit messages end with the `Co-Authored-By: Claude ...` trailer: the user wants Claude listed as a contributor.
+- Everything is published with the user's private GitHub email (`...@users.noreply.github.com`), never another one: commits, pushes and web merges. Check `git config user.email` before committing and `git log origin/main..HEAD --format='%ae %ce'` before the user pushes.
 - Commands for the user to run go in PowerShell syntax (`$env:VAR = "..."; cmd`), not bash `VAR=x cmd`.
 - Before every commit: secret scan of the staged diff (connection strings with credentials, `npg_`, tokens, private keys, local paths, personal emails), no Spanish text in versioned files, `npm run audit`, `npm run check:versions`, and the test suites relevant to the change.
 - The only secret is the Neon connection string: it lives in Vercel's `DATABASE_URL` (Sensitive) and optionally in the git-ignored `backend/.env`. Never ask for it, print it or write it into files. Never put secrets in `VITE_*` variables.
@@ -137,4 +138,6 @@ npm workspaces: `backend` (Express API), `frontend` (React SPA), plus root `api/
 - Exact versions only.
 - `min-release-age=14` in `.npmrc`, and Dependabot uses a matching 14-day cooldown. npm only enforces the window when resolving new versions; `npm run check:release-age` checks everything in the lockfile, including transitive packages, and fails on any package from outside the npm registry.
 - Exception for security fixes: `npm audit fix --min-release-age-exclude=<pkg>`, as with `body-parser` 2.4.0 (so `npm run check:release-age -- --exclude=body-parser` until 2026-11-05).
-- `@electric-sql/pglite-socket` pins an exact `@electric-sql/pglite` peer version: upgrade them together.
+- `@electric-sql/pglite-socket` pins an exact `@electric-sql/pglite` peer version: upgrade them together. `.github/dependabot.yml` groups them, and React and Tailwind with their companion packages.
+- There is no CI, and Vercel's `Ready` only means the deploy worked. Before merging a Dependabot PR, on its latest commit (a rebase or recreate can change the version): run the "Before pushing" list and `/security-review`. After the deploy, run the smoke test.
+- The `main` ruleset blocks force pushes and deletions on the default branch only: on all branches it makes Dependabot's rebases fail.

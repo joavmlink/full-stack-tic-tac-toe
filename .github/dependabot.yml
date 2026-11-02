@@ -8,3 +8,18 @@ updates:
       interval: weekly
     cooldown:
       default-days: 14
+    groups:
+      pglite:
+        patterns:
+          - "@electric-sql/pglite"
+          - "@electric-sql/pglite-socket"
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+      tailwind:
+        patterns:
+          - tailwindcss
+          - "@tailwindcss/vite"
