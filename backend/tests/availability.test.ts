@@ -30,6 +30,7 @@ const failingPool = (error: Error) => ({ query: () => Promise.reject(error) }) a
 async function expectServiceUnavailable(res: Response) {
   assert.equal(res.status, 503);
   assert.equal(res.headers.get('retry-after'), '5');
+  assert.equal(res.headers.get('cache-control'), 'no-store');
   const body = (await res.json()) as ErrorBody;
   assert.equal(body.error.code, 'SERVICE_UNAVAILABLE');
   // No internal details (driver errors, hosts, ports) reach the client.

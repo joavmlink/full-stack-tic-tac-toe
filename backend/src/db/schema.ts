@@ -1,4 +1,5 @@
-import type { Pool } from './pool.js';
+import { sha256Hex } from '../lib/hash.js';
+import { withTransaction, type Pool, type PoolClient } from './pool.js';
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS matches (
@@ -11,8 +12,7 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS matches_created_at_id_idx ON matches (created_at DESC, id DESC);
   -- SHA-256 of the token that finishes the match. Added separately so existing databases get it;
   -- rows created before it have no token and can't be finished. Checked first because ALTER TABLE
-  -- locks the table exclusively even when IF NOT EXISTS makes it a no-op, and this runs on every
-  -- cold start.
+  -- locks the table exclusively even when IF NOT EXISTS makes it a no-op.
   DO $$
   BEGIN
     IF NOT EXISTS (
@@ -28,26 +28,62 @@ const SCHEMA_SQL = `
     hits     INTEGER NOT NULL,
     reset_at TIMESTAMPTZ NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS schema_version (
+    id   BOOLEAN PRIMARY KEY DEFAULT true,
+    hash TEXT NOT NULL,
+    CONSTRAINT schema_version_one_row CHECK (id)
+  );
+`;
+
+/** Identifies these statements, so changing any of them makes the next start run them. */
+const SCHEMA_HASH = sha256Hex(SCHEMA_SQL);
+
+/** The hash is a constant of this file, so it can share the round trip with the statements. */
+const APPLY_SCHEMA_SQL = `${SCHEMA_SQL}
+  INSERT INTO schema_version (id, hash) VALUES (true, '${SCHEMA_HASH}')
+  ON CONFLICT (id) DO UPDATE SET hash = EXCLUDED.hash;
 `;
 
 /** Arbitrary constant that identifies this app's schema lock. */
 const SCHEMA_LOCK_ID = 7_421_337;
 
+const UNDEFINED_TABLE = '42P01';
+
+async function holdsCurrentHash(database: Pick<Pool, 'query'>): Promise<boolean> {
+  const { rows } = await database.query<{ hash: string }>('SELECT hash FROM schema_version');
+  return rows[0]?.hash === SCHEMA_HASH;
+}
+
+async function isSchemaCurrent(pool: Pool): Promise<boolean> {
+  try {
+    return await holdsCurrentHash(pool);
+  } catch (error) {
+    if ((error as { code?: unknown }).code === UNDEFINED_TABLE) return false;
+    throw error;
+  }
+}
+
+/** The same check inside a transaction, where a failed statement would abort it. */
+async function isSchemaCurrentInTransaction(client: PoolClient): Promise<boolean> {
+  const { rows } = await client.query<{ present: boolean }>(
+    `SELECT to_regclass('schema_version') IS NOT NULL AS present`,
+  );
+  return rows[0]!.present && (await holdsCurrentHash(client));
+}
+
 /**
- * Creates the tables if they don't exist. Safe to run on every cold start: the advisory
- * lock prevents two instances (e.g. two Vercel Functions) from racing on CREATE TABLE.
+ * Creates the schema idempotently, only when these statements haven't run yet: they lock the
+ * tables until they commit, which a new instance must not do to the writes in progress. A current
+ * schema costs one read and takes no locks. The advisory lock makes a second instance wait instead
+ * of racing the first one on CREATE statements; when its turn comes the work may be done. All the
+ * statements share one round trip, so their locks last as little as possible.
  */
 export async function ensureSchema(pool: Pool): Promise<void> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  if (await isSchemaCurrent(pool)) return;
+  await withTransaction(pool, async (client) => {
     await client.query('SELECT pg_advisory_xact_lock($1)', [SCHEMA_LOCK_ID]);
-    await client.query(SCHEMA_SQL);
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+    if (await isSchemaCurrentInTransaction(client)) return;
+    await client.query(APPLY_SCHEMA_SQL);
+  });
 }

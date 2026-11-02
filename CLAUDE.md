@@ -24,7 +24,9 @@ npm run build                # backend (tsc) then frontend (tsc -b && vite build
 npm run preview              # compiled backend + `vite preview` on :4173 (Vercel-like headers)
 npm test                     # scripts tests + backend tests + frontend unit + e2e (dev servers)
 npm run test:coverage        # backend coverage with thresholds (lines 97 / branches 93 / functions 93)
+npm run test:concurrency     # overlapping-request scenarios on real Postgres (not in `npm test`; the user runs it)
 npm run check:versions       # exact versions, lockfile, .npmrc policy (incl. min-release-age=14)
+npm run check:release-age    # every package in the lockfile comes from the npm registry and is at least 14 days old (uses the network)
 npm run audit                # npm audit --omit=dev
 npm run typecheck -w backend && npm run typecheck -w frontend
 
@@ -43,6 +45,33 @@ cd frontend && npx playwright test tests/e2e/menu.spec.ts -g "difficulty"   # on
 
 Backend test files run with `--test-concurrency=1` on purpose: each file starts its own embedded Postgres, and running them in parallel causes CPU-starvation timeouts. Keep it that way.
 
+## Before pushing
+
+A push that changes code requires everything below, with the output shown. A push that only changes docs requires the typecheck and the pre-commit checks.
+
+```powershell
+npm ci                                 # stop dev/preview servers first: they lock native files on Windows
+npm run typecheck -w backend; if ($?) { npm run typecheck -w frontend }
+npm run build
+npm test
+1..3 | ForEach-Object { npm test -w backend; if (-not $?) { throw "Backend run $_ failed" } }
+npm run test:e2e:prod -w frontend
+npm run test:coverage
+npm run check:versions
+npm run check:release-age              # --exclude=<package> only for documented security exceptions
+npm run audit
+```
+
+Also required:
+
+- After changing a transaction, a lock or the schema: `npm run test:concurrency` against a schema-only Neon branch. The user runs it.
+- If the UI changed: review screenshots of the affected screens on desktop and mobile.
+- No Spanish text in versioned files, and a clean secret scan of the commits.
+- No vulnerability described in the diff, README, docs, comments or commit messages, and no known unfixed vulnerability in what gets pushed.
+- If the diff touches authorization, SQL or transactions, dependencies, headers or secret handling: `/security-review` before pushing, with findings verified and approved.
+- This file is up to date with any change to commands, architecture or rules.
+- After the deploy: the smoke test against the live site (it creates 1 real match).
+
 ## Architecture
 
 npm workspaces: `backend` (Express API), `frontend` (React SPA), plus root `api/` and `vercel.json` for deployment.
@@ -60,7 +89,11 @@ npm workspaces: `backend` (Express API), `frontend` (React SPA), plus root `api/
 - `models/` is the only layer with SQL. Queries are parameterized (`$1`); `${COLUMNS}` is a constant. The model maps snake_case columns to the camelCase API shape and validates rows with Zod.
 - `schemas/` (Zod) is the single source of validation and DTO types. Params and query are parsed in controllers; bodies go through the `validateBody` and `requireJson` middlewares.
 - There is no migration tool: `db/schema.ts` is idempotent DDL run under `pg_advisory_xact_lock`. Schema changes must stay idempotent and backward compatible with existing Neon data.
-- Errors: throw `AppError` (`errors.ts`). `middlewares/error-handler.ts` maps parser errors to 400/413/415, Postgres connectivity failures to 503 with `Retry-After`, and everything else to a generic 500 logged with its stack.
+  - `schema_version` stores a hash of the statements. When it matches, `ensureSchema` costs one read, with no transaction and no table locks. Any change to `SCHEMA_SQL` makes the next start run it, with locks on the tables until it commits.
+  - After getting the lock it checks again (`to_regclass` first: a failed query would abort the transaction), because another instance may have finished while it waited.
+  - The statements and the hash share one round trip, so the locks last as little as possible.
+- `db/pool.ts` `withTransaction` sets `statement_timeout` and `idle_in_transaction_session_timeout` with `SET LOCAL` right after `BEGIN` (the Neon pooler doesn't take them as connection parameters) and discards a client whose `ROLLBACK` fails.
+- Errors: throw `AppError` (`errors.ts`). `middlewares/error-handler.ts` maps parser errors to 400/413/415, transient Postgres failures (connectivity, `53300`, `57P0x`, the transaction limits `57014` and `25P03`, the deadlock `40P01`) to 503 with `Retry-After`, and everything else to a generic 500 logged with its stack. `sendHttpError` is the only place that writes an error response, also for `vercel.ts`, and sets `Cache-Control: no-store`.
 - Rate limiting (`middlewares/rate-limit.ts`):
   - reads use an in-memory limiter mounted *before* the DB-ready middleware;
   - writes use `models/rate-limit-store.ts` (a Postgres table, shared across Vercel instances);
@@ -70,7 +103,7 @@ npm workspaces: `backend` (Express API), `frontend` (React SPA), plus root `api/
 **API contract.**
 - `POST /api/matches` starts a match (`winner: null`) and returns its `finishToken` (32 random bytes, base64url) only in that response; the database stores just its SHA-256 (`finish_token_hash`, `lib/match-token.ts`).
 - `PATCH /api/matches/:id` with `Authorization: Bearer <finishToken>` and `{ winner: "You" | "AI" | "Draw" }` finishes it. `middlewares/match-token.ts` runs before the JSON/body middlewares: no Bearer credential → 401 (`WWW-Authenticate: Bearer`); it hashes whatever token is sent into a typed `res.locals.matchTokenHash`, without checking its format. The model checks the hash in the same atomic `UPDATE`; any other token (or a row created before tokens existed) → 403, checked before anything else is revealed. Finishing is idempotent: the same result again → 200 with the saved match, a different one → 409.
-- `db/schema.ts` adds `finish_token_hash` inside a `DO` block that checks `information_schema` first, because `ALTER TABLE … ADD COLUMN IF NOT EXISTS` takes an exclusive lock even when it's a no-op and the schema runs on every cold start.
+- `db/schema.ts` adds `finish_token_hash` inside a `DO` block that checks `information_schema` first, because `ALTER TABLE … ADD COLUMN IF NOT EXISTS` takes an exclusive lock even when it's a no-op.
 - `GET /api/matches` is keyset-paginated (`limit` ≤ 100, `before=<id>`, `Link: rel="next"` header).
 - `GET /api/matches/stats` returns totals.
 - Timestamps are `TIMESTAMPTZ` in the database and formatted as UTC-3 ISO strings by `lib/time.ts`.
@@ -94,9 +127,14 @@ npm workspaces: `backend` (Express API), `frontend` (React SPA), plus root `api/
 
 **E2E setup.** `playwright.config.ts` starts a real backend (in-memory PGlite, high rate limits) on :3100 and Vite on :5174 with `workers: 1`. Everything uses `127.0.0.1`, not `localhost`: by default Vite listens only on `::1` on Windows, and Chromium connecting to `localhost` sometimes stalled until the test timed out. The configs pass `E2E_HOST=127.0.0.1`, which `vite.config.ts` uses as the server and preview host; keep URLs and hosts in sync. Vite uses `strictPort` because CORS allows exact origins only. Tests fix `Math.random` with `addInitScript` for deterministic AI games and wait on conditions (`expect.poll`) rather than intermediate states. Tests that need page chunks skip unless the base URL is the production preview (:4173).
 
+**Concurrency suite.** `tests/concurrency/scenarios.ts` defines the overlapping-request scenarios once, for two targets: PGlite in `npm test` (`tests/concurrency-scenarios.test.ts`, one session, proves outcomes) and a real Postgres in `npm run test:concurrency` (`real-postgres.ts`, two app instances, proves locks).
+- `guard.ts` reads the URL only from the git-ignored `backend/.env.concurrency.local` and refuses a database with rows in `matches` unless it has the `concurrency_test_marker` table of an earlier run. The scenarios drop tables, so never weaken this. It looks tables up through the `search_path`, as the scenarios do, prints only the host and refuses a malformed URL without repeating it.
+- A 503 is accepted only if the scenario proves it left nothing behind; a 500 never is. Do not loosen that without the user's approval.
+- Races alternate which request is delayed and record the status codes of each round. `requireBothOrders` (each request must win at least once) applies only to "two different results" on real Postgres.
+
 ## Dependency policy
 
 - Exact versions only.
-- `min-release-age=14` in `.npmrc`, and Dependabot uses a matching 14-day cooldown. npm only enforces the window when resolving new versions, so check that new transitive dependencies comply too.
-- Exception for security fixes: `npm audit fix --min-release-age-exclude=<pkg>`, as with `body-parser` 2.4.0.
+- `min-release-age=14` in `.npmrc`, and Dependabot uses a matching 14-day cooldown. npm only enforces the window when resolving new versions; `npm run check:release-age` checks everything in the lockfile, including transitive packages, and fails on any package from outside the npm registry.
+- Exception for security fixes: `npm audit fix --min-release-age-exclude=<pkg>`, as with `body-parser` 2.4.0 (so `npm run check:release-age -- --exclude=body-parser` until 2026-11-05).
 - `@electric-sql/pglite-socket` pins an exact `@electric-sql/pglite` peer version: upgrade them together.

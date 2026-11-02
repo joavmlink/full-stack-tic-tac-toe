@@ -54,7 +54,7 @@ database; in production `DATABASE_URL` is required.
 ├─ SECURITY.md               # How to report a vulnerability privately
 ├─ api/index.js              # Vercel Function entry (re-exports backend/dist/vercel.js)
 ├─ vercel.json               # Build, rewrites (SPA fallback, never for /assets/), security headers, caching
-├─ scripts/check-versions.mjs  # Exact-version / lockfile / .npmrc policy check
+├─ scripts/                  # Dependency checks: exact versions and policy, minimum release age
 ├─ backend/                  # MVC Express API
 │  ├─ src/
 │  │  ├─ index.ts            # Long-running server entry (signals, graceful shutdown)
@@ -72,7 +72,7 @@ database; in production `DATABASE_URL` is required.
 │  │  ├─ middlewares/        # Validation, errors, request logs, rate limits
 │  │  ├─ db/                 # pg pool, schema, local PGlite
 │  │  └─ lib/                # Small helpers (UTC-3 dates)
-│  └─ tests/                 # Node Test Runner
+│  └─ tests/                 # Node Test Runner (concurrency/: overlapping requests, on PGlite and real Postgres)
 └─ frontend/
    ├─ src/                   # React app (lazy-loaded pages, components, game logic, stores)
    └─ tests/                 # unit (Node Test Runner) and e2e (Playwright)
@@ -112,13 +112,21 @@ No configuration is needed: matches are stored in a local PGlite database in `ba
 | `npm run preview` | Serves the production build like Vercel does (static files + `vercel.json` headers + `/api` proxy) on http://localhost:4173. Run `npm run build` first |
 | `npm test` | Script tests, backend tests, frontend unit tests and e2e tests |
 | `npm run test:coverage` | Backend tests with coverage thresholds (lines 97%, branches 93%, functions 93%) |
+| `npm run test:concurrency` | The overlapping-request scenarios on a real Postgres (see below). Not part of `npm test` |
 | `npm run check:versions` | Fails if a dependency isn't pinned to an exact version or the lockfile / `.npmrc` policy (including the 14-day release-age window) is missing |
+| `npm run check:release-age` | Fails if any package in the lockfile doesn't come from the npm registry or was published less than 14 days ago. `-- --exclude=<package>` skips the age check for a documented security exception |
 | `npm run audit` | `npm audit` of the production dependencies |
 | `npm test -w backend` | Backend tests against real PostgreSQL (PGlite). Test files run one at a time, since each starts its own embedded database |
 | `npm run test:unit -w frontend` | Game logic and AI tests |
 | `npm run test:e2e -w frontend` | End-to-end tests against the dev servers |
 | `npm run test:e2e:prod -w frontend` | End-to-end tests against the production build |
 | `npm run test:e2e:remote -w frontend` | Smoke test against a deployment (set `E2E_BASE_URL` to its URL) |
+
+**Concurrency tests:** PGlite has a single session, so inside `npm test` the overlapping-request scenarios
+prove outcomes, not locks. `npm run test:concurrency` runs the same scenarios with two app instances on a real
+Postgres. Its target is a Neon branch created with **Schema only**, because the scenarios drop tables. Its URL
+is read only from the git-ignored `backend/.env.concurrency.local` (`DATABASE_URL=...`), and a database with
+matches is refused unless an earlier run of this suite marked it. Delete the branch and the file afterwards.
 
 Run `npx playwright install chromium` once per machine before the e2e tests. They start their own
 servers on dedicated ports with an in-memory database, so they never touch your local data.
@@ -146,6 +154,7 @@ type Match = {
 | `GET` | `/health` | Health check | `200` |
 
 Every response is JSON, including errors: `{ "error": { "code": "MATCH_NOT_FOUND", "message": "…", "details"?: […] } }`.
+Error responses carry `Cache-Control: no-store`.
 
 | Status | Code | When |
 |---|---|---|
@@ -159,7 +168,7 @@ Every response is JSON, including errors: `{ "error": { "code": "MATCH_NOT_FOUND
 | `415` | `UNSUPPORTED_MEDIA_TYPE` | Body that isn't JSON, or an unsupported charset / content encoding |
 | `429` | `RATE_LIMITED` | Too many reads or writes; see the `RateLimit` / `RateLimit-Policy` headers |
 | `500` | `INTERNAL_ERROR` | Unexpected error (details are only logged on the server) |
-| `503` | `SERVICE_UNAVAILABLE` | Database unreachable, too slow or out of connections (`Retry-After: 5`) |
+| `503` | `SERVICE_UNAVAILABLE` | Database unreachable, too slow or out of connections, or it cancelled the operation (`Retry-After: 5`) |
 | `503` | `SERVER_MISCONFIGURED` | Missing or invalid environment variables on the deployment (`Retry-After: 60`) |
 
 **Match token:** `POST /matches` returns a `finishToken`, a random 256-bit secret, only in that response.
@@ -191,13 +200,14 @@ CREATE TABLE matches (
 ```
 
 The schema is created automatically (idempotent, protected by an advisory lock) when the server or a
-new Vercel Function instance starts.
+new Vercel Function instance starts. A `schema_version` table stores a hash of the statements: when it
+matches, starting costs one read and takes no table locks.
 
 ## Deploying to Vercel + Neon
 
 1. **Create the database** at [neon.tech](https://neon.tech) (free plan). Pick the region closest to
    your Vercel functions (Vercel's default is Washington, D.C. → AWS `us-east-1`). Copy the **pooled**
-   connection string (host ends in `-pooler…`, includes `sslmode=require`).
+   connection string (host ends in `-pooler…`, includes `sslmode=verify-full`).
    *Alternative:* add Neon from the Vercel Marketplace (**Storage → Neon**), which creates the database
    and sets `DATABASE_URL` for you.
 2. **Import the repository** in Vercel (**Add New → Project**). Keep the repository root as the root
@@ -255,7 +265,8 @@ The app's own limits stay in place as a second layer.
   `npm audit` with 0 known vulnerabilities.
 - **Supply chain:** npm only installs versions published at least 14 days ago (`min-release-age` in
   `.npmrc`), and Dependabot version updates use the same 14-day cooldown. Malicious or broken releases
-  are usually caught and pulled within days. A security fix newer than the window is installed as a
+  are usually caught and pulled within days. `npm run check:release-age` checks what is already pinned in
+  the lockfile, including transitive packages. A security fix newer than the window is installed as a
   one-off exception, e.g. `npm audit fix --min-release-age-exclude=<package>` (this is how
   `body-parser` 2.4.0 got in: it fixes a high-severity DoS advisory).
 - Recommended GitHub settings: enable **Secret scanning**, **Push protection**, **Dependabot alerts**
@@ -289,6 +300,9 @@ These are deliberate trade-offs for a single-player game with no accounts and no
   that simply playing doesn't: any result can be reached by playing (on Easy you win almost every
   match). There are no rankings or prizes, and the statistics carry no real value.
 - **Open matches never expire:** a match abandoned mid-game stays unfinished in the history.
+- **Creating a match isn't idempotent:** ids come from the database, so if the response to a create
+  request gets lost after the match was saved, pressing Retry starts another match and the first one stays
+  unfinished in the history. No result changes.
 - **Inline styles are allowed by the CSP** (`style-src 'unsafe-inline'`): the animation library sets
   them. Scripts stay restricted to the site's own files.
 

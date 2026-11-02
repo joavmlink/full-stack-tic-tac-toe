@@ -42,6 +42,9 @@ describe('toHttpError', () => {
     ['database unreachable', Object.assign(new Error('connect'), { code: 'ECONNREFUSED' }), 503, 'SERVICE_UNAVAILABLE'],
     ['connection exception (SQLSTATE 08006)', Object.assign(new Error('x'), { code: '08006' }), 503, 'SERVICE_UNAVAILABLE'],
     ['query timeout', new Error('Query read timeout'), 503, 'SERVICE_UNAVAILABLE'],
+    ['deadlock (SQLSTATE 40P01)', Object.assign(new Error('x'), { code: '40P01' }), 503, 'SERVICE_UNAVAILABLE'],
+    ['statement time limit (SQLSTATE 57014)', Object.assign(new Error('x'), { code: '57014' }), 503, 'SERVICE_UNAVAILABLE'],
+    ['idle transaction time limit (SQLSTATE 25P03)', Object.assign(new Error('x'), { code: '25P03' }), 503, 'SERVICE_UNAVAILABLE'],
     ['unknown error', new Error('boom'), 500, 'INTERNAL_ERROR'],
     ['a thrown string', 'boom', 500, 'INTERNAL_ERROR'],
     ['null', null, 500, 'INTERNAL_ERROR'],
@@ -59,6 +62,51 @@ describe('toHttpError', () => {
     const result = toHttpError(Object.assign(new Error('password authentication failed for user "x"'), { code: '57P03' }));
     assert.deepEqual(result.headers, { 'Retry-After': '5' });
     assert.doesNotMatch(result.message, /password|user/);
+  });
+});
+
+describe('Error responses are never cached', () => {
+  let database: TestDatabase;
+  let server: TestServer;
+
+  before(async () => {
+    database = await createTestDatabase();
+    server = await startTestServer(database, { writeLimitPerMinute: 1 });
+  });
+
+  after(async () => {
+    await server.close();
+    await database.close();
+  });
+
+  const expectNoStore = (res: Response, label: string) => {
+    assert.equal(res.headers.get('cache-control'), 'no-store', label);
+  };
+
+  test('client, domain and rate limit errors carry no-store', async () => {
+    const { baseUrl } = server;
+    const unknownRoute = await fetch(`${baseUrl}/api/nope`);
+    assert.equal(unknownRoute.status, 404);
+    expectNoStore(unknownRoute, 'unknown route');
+
+    const invalidId = await fetch(`${baseUrl}/api/matches/abc`);
+    assert.equal(invalidId.status, 400);
+    expectNoStore(invalidId, 'invalid id');
+
+    const missingMatch = await fetch(`${baseUrl}/api/matches/999`);
+    assert.equal(missingMatch.status, 404);
+    expectNoStore(missingMatch, 'missing match');
+
+    assert.equal((await fetch(`${baseUrl}/api/matches`, { method: 'POST' })).status, 201);
+    const limited = await fetch(`${baseUrl}/api/matches`, { method: 'POST' });
+    assert.equal(limited.status, 429);
+    expectNoStore(limited, 'rate limited');
+  });
+
+  test('a successful response is not marked', async () => {
+    const res = await fetch(`${server.baseUrl}/api/matches`);
+    assert.equal(res.status, 200);
+    assert.notEqual(res.headers.get('cache-control'), 'no-store');
   });
 });
 

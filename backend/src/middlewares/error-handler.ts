@@ -1,4 +1,4 @@
-import type { ErrorRequestHandler, RequestHandler } from 'express';
+import type { ErrorRequestHandler, RequestHandler, Response } from 'express';
 import { AppError } from '../errors.js';
 import { describeError, type Logger } from '../logger.js';
 
@@ -28,8 +28,9 @@ const PARSER_ERRORS: Record<string, Omit<HttpError, 'details' | 'headers'>> = {
   'request.size.invalid': { status: 400, code: 'BAD_REQUEST', message: 'Bad request' },
 };
 
-// Network errors and PostgreSQL SQLSTATEs meaning "the database can't be reached right now":
-// too_many_connections, admin/crash shutdown, cannot_connect_now (+ class 08, connection exceptions).
+// Network errors and PostgreSQL SQLSTATEs meaning "try again shortly": too_many_connections,
+// admin/crash shutdown, cannot_connect_now, query_canceled and idle_in_transaction_session_timeout
+// (the transaction limits in db/pool.ts), deadlock_detected (+ class 08, connection exceptions).
 const DATABASE_UNAVAILABLE_CODES = new Set([
   'ECONNREFUSED',
   'ECONNRESET',
@@ -41,6 +42,9 @@ const DATABASE_UNAVAILABLE_CODES = new Set([
   '57P01',
   '57P02',
   '57P03',
+  '57014',
+  '25P03',
+  '40P01',
 ]);
 const DATABASE_UNAVAILABLE_MESSAGE = /timeout exceeded when trying to connect|Connection terminated|Query read timeout/i;
 
@@ -87,6 +91,15 @@ export function toHttpError(error: unknown): HttpError {
   return { status: 500, code: 'INTERNAL_ERROR', message: 'Internal server error' };
 }
 
+/** The only place that writes an error response, so every one has the same shape and headers. */
+export function sendHttpError(res: Response, { status, code, message, details, headers }: HttpError): void {
+  if (headers) res.set(headers);
+  res
+    .set('Cache-Control', 'no-store')
+    .status(status)
+    .json({ error: { code, message, ...(details !== undefined ? { details } : {}) } });
+}
+
 export const notFoundHandler: RequestHandler = (req, _res, next) => {
   next(new AppError(404, 'ROUTE_NOT_FOUND', `Route ${req.method} ${req.path} does not exist`));
 };
@@ -95,7 +108,8 @@ export const notFoundHandler: RequestHandler = (req, _res, next) => {
 export const createErrorHandler =
   (logger: Logger): ErrorRequestHandler =>
   (error: unknown, req, res, next) => {
-    const { status, code, message, details, headers } = toHttpError(error);
+    const httpError = toHttpError(error);
+    const { status, code } = httpError;
 
     if (status >= 500) {
       logger.error('request failed', {
@@ -111,6 +125,5 @@ export const createErrorHandler =
       next(error);
       return;
     }
-    if (headers) res.set(headers);
-    res.status(status).json({ error: { code, message, ...(details !== undefined ? { details } : {}) } });
+    sendHttpError(res, httpError);
   };

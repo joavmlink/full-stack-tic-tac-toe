@@ -18,7 +18,9 @@
     "preview": "concurrently -k -n api,web -c magenta,cyan \"npm start -w backend\" \"npm run preview -w frontend\"",
     "test": "node --test \"scripts/*.test.mjs\" && npm test -w backend && npm test -w frontend",
     "test:coverage": "npm run test:coverage -w backend",
+    "test:concurrency": "npm run test:concurrency -w backend",
     "check:versions": "node scripts/check-versions.mjs",
+    "check:release-age": "node scripts/check-release-age.mjs",
     "audit": "npm audit --omit=dev --audit-level=low"
   },
   "devDependencies": {

@@ -8,6 +8,7 @@ import { loadConfig, type Config } from './config.js';
 import { createPool } from './db/pool.js';
 import { ensureSchema } from './db/schema.js';
 import { createLogger, type Logger } from './logger.js';
+import { sendHttpError } from './middlewares/error-handler.js';
 
 /**
  * Used when the environment is missing or invalid: instead of crashing at startup (which makes
@@ -19,12 +20,12 @@ function createMisconfiguredApp(reason: string, logger: Logger): Express {
   const app = express();
   app.use(helmet());
   app.use((_req, res) => {
-    res
-      .status(503)
-      .set('Retry-After', '60')
-      .json({
-        error: { code: 'SERVER_MISCONFIGURED', message: 'The server is not configured correctly, please try again later' },
-      });
+    sendHttpError(res, {
+      status: 503,
+      code: 'SERVER_MISCONFIGURED',
+      message: 'The server is not configured correctly, please try again later',
+      headers: { 'Retry-After': '60' },
+    });
   });
   return app;
 }

@@ -56,6 +56,7 @@ describe('Vercel entry point', () => {
           const res = await fetch(`${server.baseUrl}${path}`, { method });
           assert.equal(res.status, 503, `${method} ${path}`);
           assert.equal(res.headers.get('retry-after'), '60');
+          assert.equal(res.headers.get('cache-control'), 'no-store');
           assert.equal(((await res.json()) as ErrorBody).error.code, 'SERVER_MISCONFIGURED');
         }
       } finally {
